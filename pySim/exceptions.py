@@ -37,3 +37,8 @@ class ProtocolError(Exception):
 
 class ReaderError(Exception):
 	pass
+
+class NotInitializedError(Exception):
+        pass
+
+
