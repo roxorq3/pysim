@@ -758,3 +758,9 @@ def get_addr_type(addr):
 		return 0x00
 
 	return None
+
+def calculate_checksum_xor(bytelist):
+	checksum = 0
+	for b in bytelist:
+		checksum ^= b
+	return checksum
