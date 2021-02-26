@@ -5,6 +5,7 @@
 """
 
 #
+# Copyright (C) 2018-2021  Gabriel K. Gegenhuber <ggegenhuber@sba-research.org>
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,213 +24,292 @@
 
 from __future__ import absolute_import
 
-import serial
 import time
 
 from pySim.exceptions import NoCardError, ProtocolError
 from pySim.transport import LinkBase
+from pySim.transport.serial_base import SerialBase
+from pySim.transport.apdu_helper import ApduHelper
 from pySim.utils import h2b, b2h
 
 
 class SerialSimLink(LinkBase):
+    def __init__(self, device='/dev/ttyUSB0', clock=3579545, rst='-rts'):
+        self._rst_pin = rst
+        self._sl = SerialBase(device, clock)
+        self._apdu_helper = ApduHelper()
 
-	def __init__(self, device='/dev/ttyUSB0', baudrate=9600, rst='-rts', debug=False):
-		self._sl = serial.Serial(
-				port = device,
-				parity = serial.PARITY_EVEN,
-				bytesize = serial.EIGHTBITS,
-				stopbits = serial.STOPBITS_TWO,
-				timeout = 1,
-				xonxoff = 0,
-				rtscts = 0,
-				baudrate = baudrate,
-			)
-		self._rst_pin = rst
-		self._debug = debug
-		self._atr = None
+    def __del__(self):
+        self.disconnect()
 
-	def __del__(self):
-		self._sl.close()
+    def wait_for_card(self, timeout=None, newcardonly=False):
+        # Direct try
+        existing = False
 
-	def wait_for_card(self, timeout=None, newcardonly=False):
-		# Direct try
-		existing = False
+        try:
+            self.reset_card()
+            if not newcardonly:
+                return
+            else:
+                existing = True
+        except NoCardError:
+            pass
 
-		try:
-			self.reset_card()
-			if not newcardonly:
-				return
-			else:
-				existing = True
-		except NoCardError:
-			pass
+        # Poll ...
+        mt = time.time() + timeout if timeout is not None else None
+        pe = 0
 
-		# Poll ...
-		mt = time.time() + timeout if timeout is not None else None
-		pe = 0
+        while (mt is None) or (time.time() < mt):
+            try:
+                time.sleep(0.5)
+                self.reset_card()
+                if not existing:
+                    return
+            except NoCardError:
+                existing = False
+            except ProtocolError:
+                if existing:
+                    existing = False
+                else:
+                    # Tolerate a couple of protocol error ... can happen if
+                    # we try when the card is 'half' inserted
+                    pe += 1
+                    if (pe > 2):
+                        raise
 
-		while (mt is None) or (time.time() < mt):
-			try:
-				time.sleep(0.5)
-				self.reset_card()
-				if not existing:
-					return
-			except NoCardError:
-				existing = False
-			except ProtocolError:
-				if existing:
-					existing = False
-				else:
-					# Tolerate a couple of protocol error ... can happen if
-					# we try when the card is 'half' inserted
-					pe += 1
-					if (pe > 2):
-						raise
+        # Timed out ...
+        raise NoCardError()
 
-		# Timed out ...
-		raise NoCardError()
+    def connect(self, do_pbs=True):
+        self.reset_card()
+        if do_pbs:
+            pbs_request = self.get_pbs_proposal()  # just accept fastest baudrate
+            self.tx_bytes(pbs_request)
+            pbs_response = self.rx_bytes()
+            if pbs_request != pbs_response:  # TX and RX are tied, so we must clear the echo
+                raise ProtocolError(
+                    f"Bad PBS reponse (Expected: {b2h(pbs_request)}, got {b2h(pbs_response)})")
+            logging.info(f"PBS: {b2h(pbs_response)}")
 
-	def connect(self):
-		self.reset_card()
+    def get_atr(self):
+        return self.sl.get_atr()
 
-	def get_atr(self):
-		return self._atr
+    def disconnect(self):
+        self._sl.close()
 
-	def disconnect(self):
-		pass # Nothing to do really ...
+    def reset_card(self):
+        rv = self._reset_card()
+        if rv == 0:
+            raise NoCardError()
+        elif rv < 0:
+            raise ProtocolError()
 
-	def reset_card(self):
-		rv = self._reset_card()
-		if rv == 0:
-			raise NoCardError()
-		elif rv < 0:
-			raise ProtocolError()
+    def _reset_card(self):
+        atr = None
+        rst_meth_map = {
+            'rts': self._sl.setRTS,
+            'dtr': self._sl.setDTR,
+        }
+        rst_val_map = {'+': 0, '-': 1}
 
-	def _reset_card(self):
-		self._atr = None
-		rst_meth_map = {
-			'rts': self._sl.setRTS,
-			'dtr': self._sl.setDTR,
-		}
-		rst_val_map = { '+':0, '-':1 }
+        try:
+            rst_meth = rst_meth_map[self._rst_pin[1:]]
+            rst_val = rst_val_map[self._rst_pin[0]]
+        except:
+            raise ValueError('Invalid reset pin %s' % self._rst_pin)
 
-		try:
-			rst_meth = rst_meth_map[self._rst_pin[1:]]
-			rst_val  = rst_val_map[self._rst_pin[0]]
-		except:
-			raise ValueError('Invalid reset pin %s' % self._rst_pin)
+        rst_meth(rst_val)
+        time.sleep(0.1)  # 100 ms
+        self._sl.reset_input_buffer()
+        rst_meth(rst_val ^ 1)
 
-		rst_meth(rst_val)
-		time.sleep(0.1)  # 100 ms
-		self._sl.flushInput()
-		rst_meth(rst_val ^ 1)
+        b = self._sl.rx_byte()
+        if not b:
+            return 0
+        if ord(b) != 0x3b:
+            return -1
+        logging.debug("TS: 0x%x Direct convention" % ord(b))
 
-		b = self._rx_byte()
-		if not b:
-			return 0
-		if ord(b) != 0x3b:
-			return -1
-		self._dbg_print("TS: 0x%x Direct convention" % ord(b))
+        while ord(b) == 0x3b:
+            b = self._sl.rx_byte()
 
-		while ord(b) == 0x3b:
-			b = self._rx_byte()
+        if not b:
+            return -1
+        t0 = ord(b)
+        logging.debug("T0: 0x%x" % t0)
+        atr = [0x3b, ord(b)]
 
-		if not b:
-			return -1
-		t0 = ord(b)
-		self._dbg_print("T0: 0x%x" % t0)
-		self._atr = [0x3b, ord(b)]
+        for i in range(4):
+            if t0 & (0x10 << i):
+                b = self._sl.rx_byte()
+                atr.append(ord(b))
+                logging.debug("T%si = %x" % (chr(ord('A')+i), ord(b)))
 
-		for i in range(4):
-			if t0 & (0x10 << i):
-				b = self._rx_byte()
-				self._atr.append(ord(b))
-				self._dbg_print("T%si = %x" % (chr(ord('A')+i), ord(b)))
+        for i in range(0, t0 & 0xf):
+            b = self._sl.rx_byte()
+            atr.append(ord(b))
+            logging.debug("Historical = %x" % ord(b))
 
-		for i in range(0, t0 & 0xf):
-			b = self._rx_byte()
-			self._atr.append(ord(b))
-			self._dbg_print("Historical = %x" % ord(b))
+        while True:
+            x = self._sl.rx_byte()
+            if not x:
+                break
+            atr.append(ord(x))
+            logging.debug("Extra: %x" % ord(x))
 
-		while True:
-			x = self._rx_byte()
-			if not x:
-				break
-			self._atr.append(ord(x))
-			self._dbg_print("Extra: %x" % ord(x))
+        self.sl.atr_recieved(atr)
 
-		return 1
+        return 1
 
-	def _dbg_print(self, s):
-		if self._debug:
-			print(s)
+    """
+    def tx_byte(self, b):
+        return self._sl.tx_byte(b)
 
-	def _tx_byte(self, b):
-		self._sl.write(b)
-		r = self._sl.read()
-		if r != b:	# TX and RX are tied, so we must clear the echo
-			raise ProtocolError("Bad echo value. Expected %02x, got %s)" % (ord(b), '%02x'%ord(r) if r else '(nil)'))
+    def tx_bytes(self, buf):
+        return self._sl.tx_bytes(buf)
 
-	def _tx_string(self, s):
-		"""This is only safe if it's guaranteed the card won't send any data
-		during the time of tx of the string !!!"""
-		self._sl.write(s)
-		r = self._sl.read(len(s))
-		if r != s:	# TX and RX are tied, so we must clear the echo
-			raise ProtocolError("Bad echo value (Expected: %s, got %s)" % (b2h(s), b2h(r)))
+    def rx_byte(self):
+        return self._sl.rx_byte()
 
-	def _rx_byte(self):
-		return self._sl.read()
+    def rx_bytes(self, size=SerialBase.BUF_SIZE):
+        return self._sl.rx_bytes()
+    """
 
-	def send_apdu_raw(self, pdu):
-		"""see LinkBase.send_apdu_raw"""
+    """
+    def rx_card_response(self, size=SerialBase.BUF_SIZE, proc = None, wxt = SerialBase.WXT_BYTE): #wxt can be set to None when not needed
+        buf = _sl.rx_bytes(size)
+        while len(buf) > 0:
+            if bytes[0] == wxt:
+                logging.info("Received wxt!")
+                buf = bytes[1:]
+            elif bytes[0] == proc:
+                logging.info("Received proc!")
+                buf = bytes[1:]
+            else:
+                break
+        if len(buf) < 1:
+            return self._sl.rx_bytes(size)
+        return buf
+    """
 
-		pdu = h2b(pdu)
-		data_len = ord(pdu[4])	# P3
+    # wxt can be set to None when not needed
+    def rx_card_response(self, size=SerialBase.BUF_SIZE, proc=None, wxt=SerialBase.WXT_BYTE):
+        if(size > 1 and any([proc, wxt])):
+            while True:
+                # recieve first byte and check if it should be discarded, then recieve the rest
+                b = self._sl.rx_byte()
+                if b == wxt:
+                    logging.info("Received wxt!")
+                elif b == proc:
+                    logging.info("Received proc!")
+                else:
+                    return [b] + self._sl.rx_bytes(size - 1)
+                    break
+        else:
+            return self._sl.rx_bytes(size)
 
-		# Send first CLASS,INS,P1,P2,P3
-		self._tx_string(pdu[0:5])
+    def tx_apdu(self, apdu):
+        header = apdu[0:5]
+        data = apdu[5:]
+        self.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
+        print("header: {}".format(header.hex()))
+        cla, ins, p1, p2, p3 = header
 
-		# Wait ack which can be
-		#  - INS: Command acked -> go ahead
-		#  - 0x60: NULL, just wait some more
-		#  - SW1: The card can apparently proceed ...
-		while True:
-			b = self._rx_byte()
-			if b == pdu[1]:
-				break
-			elif b != '\x60':
-				# Ok, it 'could' be SW1
-				sw1 = b
-				sw2 = self._rx_byte()
-				nil = self._rx_byte()
-				if (sw2 and not nil):
-					return '', b2h(sw1+sw2)
+        apdu_type = self._apdu_helper.classify_apdu(header)
+        ins_name = apdu_type['name']
+        case = apdu_type['case']
+        le = 2  # per default two SW bytes as expected response
 
-				raise ProtocolError()
+        print("{} -> case {}".format(ins_name, case))
 
-		# Send data (if any)
-		if len(pdu) > 5:
-			self._tx_string(pdu[5:])
+        if case == 1:  # P3 == 0 -> No Lc/Le
+            return self.rx_card_response(le, ins)
+        if case == 2:  # P3 == Le
+            if p3 == 0:
+                le += 256
+            else:
+                le += p3
+            return self.rx_card_response(le+1, ins)
+        if (case == 3 or  # P3 = Lc
+                case == 4):  # P3 = Lc, Le encoded in SW
+            lc = p3
+            proc = self.rx_card_response(1)
+            if proc[0] != ins:
+                print("proc byte {} expected but {} recieved".format(
+                    ins, proc[0]))
+            if lc > 0 and len(data):
+                # send proc byte and recieve rest of command
+                self.tx_bytes(data)
+                print("data: {}".format(data.hex()))
+            return self.rx_card_response(le, ins)
+        else:
+            print("unknown apdu case :|")
+            return self.rx_card_response(le, ins)
 
-		# Receive data (including SW !)
-		#  length = [P3 - tx_data (=len(pdu)-len(hdr)) + 2 (SW1//2) ]
-		to_recv = data_len - len(pdu) + 5 + 2
+    def send_apdu_raw(self, pdu):
+        if isinstance(pdu, str):
+            pdu = hex2bin(pdu)
 
-		data = ''
-		while (len(data) < to_recv):
-			b = self._rx_byte()
-			if (to_recv == 2) and (b == '\x60'): # Ignore NIL if we have no RX data (hack ?)
-				continue
-			if not b:
-				break
-			data += b
+        response = tx_apdu(pdu)
+        # Split datafield from SW
+        if len(data) < 2:
+            return None, None
+        sw = data[-2:]
+        data = data[0:-2]
 
-		# Split datafield from SW
-		if len(data) < 2:
-			return None, None
-		sw = data[-2:]
-		data = data[0:-2]
+        # Return value
+        return b2h(data), b2h(sw)
 
-		# Return value
-		return b2h(data), b2h(sw)
+    def send_apdu_raw_deprecated(self, pdu):
+        """see LinkBase.send_apdu_raw"""
+
+        if isinstance(pdu, str):
+            pdu = hex2bin(pdu)
+        data_len = ord(pdu[4])  # P3
+
+        # Send first CLASS,INS,P1,P2,P3
+        self._tx_string(pdu[0:5])
+
+        # Wait ack which can be
+        #  - INS: Command acked -> go ahead
+        #  - 0x60: NULL, just wait some more
+        #  - SW1: The card can apparently proceed ...
+        while True:
+            b = self._sl.rx_byte()
+            if b == pdu[1]:
+                break
+            elif b != '\x60':
+                # Ok, it 'could' be SW1
+                sw1 = b
+                sw2 = self._sl.rx_byte()
+                nil = self._sl.rx_byte()
+                if (sw2 and not nil):
+                    return '', b2h(sw1+sw2)
+
+                raise ProtocolError()
+
+        # Send data (if any)
+        if len(pdu) > 5:
+            self._tx_string(pdu[5:])
+
+        # Receive data (including SW !)
+        #  length = [P3 - tx_data (=len(pdu)-len(hdr)) + 2 (SW1//2) ]
+        to_recv = data_len - len(pdu) + 5 + 2
+
+        data = ''
+        while (len(data) < to_recv):
+            b = self._sl.rx_byte()
+            if (to_recv == 2) and (b == '\x60'):  # Ignore NIL if we have no RX data (hack ?)
+                continue
+            if not b:
+                break
+            data += b
+
+        # Split datafield from SW
+        if len(data) < 2:
+            return None, None
+        sw = data[-2:]
+        data = data[0:-2]
+
+        # Return value
+        return b2h(data), b2h(sw)

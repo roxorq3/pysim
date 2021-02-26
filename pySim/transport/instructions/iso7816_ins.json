@@ -1,0 +1,66 @@
+{
+    "0xB0" :    {
+        "name": "READ BINARY",
+        "case": 2
+    },
+    "0xD0" :    {
+        "name": "WRITE BINARY",
+        "case": 3
+    },
+    "0xD6" :    {
+        "name": "UPDATE BINARY",
+        "case": 3
+    },
+    "0x0E" :    {
+        "name": "ERASE BINARY",
+        "case": 3
+    },
+    "0xB2" :    {
+        "name": "READ RECORD",
+        "case": 2
+    },
+    "0xD2" :    {
+        "name": "WRITE RECORD",
+        "case": 3
+    },
+    "0xE2" :    {
+        "name": "APPEND RECORD",
+        "case": 3
+    },
+    "0xDC" :    {
+        "name": "UPDATE RECORD",
+        "case": 3
+    },
+    "0xCA" :    {
+        "name": "GET DATA",
+        "case": 2
+    },
+    "0xDA" :    {
+        "name": "PUT DATA",
+        "case": 3
+    },
+    "0xA4" :    {
+        "name": "SELECT FILE",
+        "case": 4
+    },
+    "0x20" :    {
+        "name": "VERIFY",
+        "case": 3
+    },
+    "0x88" :    {
+        "name": "INTERNAL AUTHENTICATE",
+        "case": 4
+    },
+    "0x82" :    {
+        "name": "EXTERNAL AUTHENTICATE",
+        "case": 3
+    },
+    "0x84" :    {
+        "name": "GET CHALLENGE",
+        "case": 2
+    },
+    "0x70" :    {
+        "name": "MANAGE CHANNEL",
+        "case": 2
+    }
+}

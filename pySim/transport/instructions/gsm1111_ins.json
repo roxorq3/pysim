@@ -1,0 +1,90 @@
+{
+    "0xA4" :    {
+        "name": "SELECT FILE",
+        "case": 4
+    },
+    "0xF2" :    {
+        "name": "STATUS",
+        "case": 2
+    },
+    "0xB0" :    {
+        "name": "READ BINARY",
+        "case": 2
+    },
+    "0xD6" :    {
+        "name": "UPDATE BINARY",
+        "case": 3
+    },
+    "0xB2" :    {
+        "name": "READ RECORD",
+        "case": 2
+    },
+    "0xDC" :    {
+        "name": "UPDATE RECORD",
+        "case": 3
+    },
+    "0xA2" :    {
+        "name": "SEEK",
+        "case": 4
+    },
+    "0x32" :    {
+        "name": "INCREASE",
+        "case": 4
+    },
+    "0x20" :    {
+        "name": "VERIFY CHV",
+        "case": 3
+    },
+    "0x24" :    {
+        "name": "CHANGE CHV",
+        "case": 3
+    },
+    "0x26" :    {
+        "name": "DISABLE CHV",
+        "case": 3
+    },
+    "0x28" :    {
+        "name": "ENABLE CHV",
+        "case": 3
+    },
+    "0x2C" :    {
+        "name": "UNBLOCK CHV",
+        "case": 3
+    },
+    "0x04" :    {
+        "name": "INVALIDATE",
+        "case": 1
+    },
+    "0x44" :    {
+        "name": "REHABILITATE",
+        "case": 1
+    },
+    "0x88" :    {
+        "name": "RUN GSM ALGO",
+        "case": 4
+    },
+    "0xFA" :    {
+        "name": "SLEEP",
+        "case": 1
+    },
+    "0xC0" :    {
+        "name": "GET RESPONSE",
+        "case": 2
+    },
+    "0x10" :    {
+        "name": "TERMINAL PROFILE",
+        "case": 3
+    },
+    "0xC2" :    {
+        "name": "ENVELOPE",
+        "case": 4
+    },
+    "0x12" :    {
+        "name": "FETCH",
+        "case": 2
+    },
+    "0x14" :    {
+        "name": "TERMINAL RESPONSE",
+        "case": 3
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "0xF2" :    {
+        "name": "STATUS",
+        "case": 2
+    },
+    "0x32" :    {
+        "name": "INCREASE",
+        "case": 4
+    },
+    "0xCB" :    {
+        "name": "RETRIEVE DATA",
+        "case": 4
+    },
+    "0xDB" :    {
+        "name": "SET DATA",
+        "case": 3
+    },
+    "0xAA" :    {
+        "name": "TERMINAL CAPABILITY",
+        "case": 3
+    }
+}

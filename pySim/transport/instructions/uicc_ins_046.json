@@ -1,0 +1,85 @@
+{
+    "0xA4" :    {
+        "name": "SELECT FILE",
+        "case": 4
+    },
+    "0xB0" :    {
+        "name": "READ BINARY",
+        "case": 2
+    },
+    "0xD6" :    {
+        "name": "UPDATE BINARY",
+        "case": 3
+    },
+    "0xB2" :    {
+        "name": "READ RECORD",
+        "case": 2
+    },
+    "0xDC" :    {
+        "name": "UPDATE RECORD",
+        "case": 3
+    },
+    "0xA2" :    {
+        "name": "SEEK",
+        "case": 4
+    },
+    "0x20" :    {
+        "name": "VERIFY PIN",
+        "case": 3
+    },
+    "0x24" :    {
+        "name": "CHANGE PIN",
+        "case": 3
+    },
+    "0x26" :    {
+        "name": "DISABLE PIN",
+        "case": 3
+    },
+    "0x28" :    {
+        "name": "ENABLE PIN",
+        "case": 3
+    },
+    "0x2C" :    {
+        "name": "UNBLOCK PIN",
+        "case": 3
+    },
+
+    "0x04" :    {
+        "name": "DEACTIVATE FILE",
+        "case": 1
+    },
+    "0x44" :    {
+        "name": "ACTIVATE FILE",
+        "case": 1
+    },
+    "0x88" :    {
+        "name": "AUTHENTICATE",
+        "case": 4
+    },
+    "0x89" :    {
+        "name": "AUTHENTICATE",
+        "case": 4
+    },
+    "0x84" :    {
+        "name": "GET CHALLENGE",
+        "case": 2
+    },
+    "0x70" :    {
+        "name": "MANAGE CHANNEL",
+        "case": 2
+    },
+
+    "0x73" :    {
+        "name": "MANAGE SECURE CHANNEL",
+        "case": 5
+    },
+    "0x75" :    {
+        "name": "TRANSACT DATA",
+        "case": 5
+    },
+    
+    "0xC0" :    {
+        "name": "GET RESPONSE",
+        "case": 2
+    }
+}

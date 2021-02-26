@@ -1,0 +1,18 @@
+{
+    "0x10" :    {
+        "name": "TERMINAL PROFILE",
+        "case": 3
+    },
+    "0xC2" :    {
+        "name": "ENVELOPE",
+        "case": 4
+    },
+    "0x12" :    {
+        "name": "FETCH",
+        "case": 2
+    },
+    "0x14" :    {
+        "name": "TERMINAL RESPONSE",
+        "case": 3
+    }
+}
