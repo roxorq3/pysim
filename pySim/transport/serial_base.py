@@ -1,0 +1,164 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+""" pySim: Transport Link for serial (RS232) based readers included with simcard
+"""
+
+#
+# Copyright (C) 2018-2021  Gabriel K. Gegenhuber <ggegenhuber@sba-research.org>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+from __future__ import absolute_import
+
+import serial
+import logging
+
+from pySim.exceptions import ProtocolError
+from pySim.utils import b2h
+
+
+class SerialBase(object):
+    DEFAULT_FI = 0
+    DEFAULT_DI = 1
+    DEFAULT_WI = 10
+
+    TBL_CLOCKRATECONVERSION = [372, 372, 558, 744, 1116, 1488, 1860, 'RFU',
+                               'RFU', 512, 768, 1024, 1536, 2048, 'RFU', 'RFU',
+                               'RFU']
+
+    TBL_BITRATEFACTOR = ['RFU', 1, 2, 4, 8, 16, 32, 'RFU', 12, 20, 'RFU',
+                         'RFU', 'RFU', 'RFU', 'RFU', 'RFU']
+
+    ATR_BYTE = 0x3b
+    PPS_BYTE = 0xff
+    WXT_BYTE = 0x60
+
+    BUF_SIZE = 256
+
+    def __init__(self, device='/dev/ttyUSB0', clock=3571200):
+        self._clk = clock
+        self._fi = SerialBase.DEFAULT_FI
+        self._di = SerialBase.DEFAULT_DI
+        self._wi = SerialBase.DEFAULT_WI
+        self._atr = None
+        self._sl = serial.Serial(
+            port=device,
+            parity=serial.PARITY_EVEN,
+            bytesize=serial.EIGHTBITS,
+            stopbits=serial.STOPBITS_TWO,
+            timeout=5,
+            xonxoff=0,
+            rtscts=0,
+            baudrate=self._calculate_baudrate(),
+            inter_byte_timeout=0.1
+        )
+
+    def __del__(self):
+        self.close()
+
+    def close(self):
+        self._sl.close()
+
+    def _set_baudrate(self, baudrate):
+        self._sl.baudrate = baudrate
+
+    def _set_inter_byte_timeout(self, inter_byte_timeout):
+        self._sl.inter_byte_timeout = inter_byte_timeout
+
+    def _calculate_baudrate(self):
+        return round(self._clk / self._calculate_f() * self._calculate_d())
+
+    def _calculate_f(self):
+        return SerialBase.TBL_CLOCKRATECONVERSION[self._fi]
+
+    def _calculate_d(self):
+        return SerialBase.TBL_BITRATEFACTOR[self._di]
+
+    def _get_work_etu(self):  # page 383
+        return self._calculate_f() / self._clk / self._calculate_d()
+
+    def get_waiting_time(self):
+        return (960 * self._calculate_d() * self._wi) * self._get_work_etu()
+
+    def get_atr(self):
+        return self._atr
+
+    def atr_recieved(self, atr):
+        if atr[0] != SerialBase.ATR_BYTE:
+            raise ProtocolError(
+                f"Bad ATR header. Expected {SerialBase.ATR_BYTE}, got {atr[0]})")
+        self._atr = atr
+
+    def pbs_sent(self, pbs):
+        if pbs[0] != SerialBase.PPS_BYTE:
+            raise ProtocolError(
+                f"Bad PBS header. Expected {SerialBase.PPS_BYTE}, got {pbs[0]})")
+
+        fidi = pbs[2]
+        self._fi = fidi >> 4 & 0x0f
+        self._di = fidi & 0x0f
+
+        serial_baudrate = self._calculate_baudrate()
+        self._set_baudrate(serial_baudrate)
+        self._sl.set_inter_byte_timeout(0.01)
+        logging.info(
+            f"update fidi: {self._calculate_f()}/{self._calculate_d()} --> new baudrate: {serial_baudrate}")
+
+    def get_pbs_proposal(self):
+        if not self._atr:
+            raise NotInitializedError(
+                "ATR not received yet --> cannot calculate pbs!")
+        pbs = bytearray([0xff, 0x10])
+        pbs.append(self._atr[2])  # TA1
+        pbs.append(calculate_checksum_xor(pbs))
+        return pbs
+
+    def tx_byte(self, b):
+        logging.debug(f"tx_byte: {b2h(b)}")
+        self._sl.write(b)
+        r = self._sl.read()
+        if r != b:  # TX and RX are tied, so we must clear the echo
+            raise ProtocolError("Bad echo value. Expected %02x, got %s)" % (
+                ord(b), '%02x' % ord(r) if r else '(nil)'))
+
+    def tx_bytes(self, buf):
+        """This is only safe if it's guaranteed the card won't send any data
+        during the time of tx of the string !!!"""
+        logging.debug(f"tx_bytes [{len(buf)}]: {b2h(buf)}")
+        self._sl.write(buf)
+        r = self._sl.read(len(buf))
+        if r != buf:    # TX and RX are tied, so we must clear the echo
+            raise ProtocolError(
+                f"Bad echo value (Expected: {b2h(buf)}, got {b2h(r)})")
+
+    def rx_byte(self):
+        b = self._sl.read()
+        logging.debug(f"rx_byte: {b2h(b)}")
+        return b
+
+    def rx_bytes(self, size):
+        buf = self._sl.read(size)
+        logging.debug(f"rx_bytes [{len(buf)}/{size}]: {b2h(buf)}")
+        return s
+
+    def reset_input_buffer(self):
+        self._sl.reset_input_buffer()
+
+    def setRTS(self, level=True):
+        self._sl.rts = level
+        
+    def setDTR(self, level=True):
+        self._sl.dtr = level
