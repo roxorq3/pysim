@@ -625,8 +625,7 @@ def init_reader(opts):
 		else: # Serial reader is default
 			print("Using serial reader interface")
 			from pySim.transport.serial import SerialSimLink
-			#sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate)
-			sl = SerialSimLink(device=opts.device)
+			sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate)
 		return sl
 	except Exception as e:
 		print("Card reader initialization failed with exception:\n" + str(e))

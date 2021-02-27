@@ -35,13 +35,18 @@ from pySim.utils import h2b, b2h
 
 
 class SerialSimLink(LinkBase):
-    def __init__(self, device='/dev/ttyUSB0', clock=3579545, rst='-rts'):
+    def __init__(self, device='/dev/ttyUSB0', baudrate=9600, rst='-rts'):
         self._rst_pin = rst
-        self._sl = SerialBase(device, clock)
+        self._baudrate = baudrate
+        self._sl = SerialBase(device, self._calculate_clk())
         self._apdu_helper = ApduHelper()
 
     def __del__(self):
         self.disconnect()
+
+    def _calculate_clk(self):
+        clk = self._baudrate * SerialBase.TBL_BITRATEFACTOR[SerialBase.DEFAULT_DI] * SerialBase.TBL_CLOCKRATECONVERSION[SerialBase.DEFAULT_FI]
+        return clk
 
     def wait_for_card(self, timeout=None, newcardonly=False):
         # Direct try
@@ -98,7 +103,8 @@ class SerialSimLink(LinkBase):
         return self.sl.get_atr()
 
     def disconnect(self):
-        self._sl.close()
+        if (hasattr(self, "_sl")):
+            self._sl.close()
 
     def reset_card(self, do_pbs=True):
         rv = self._reset_card()
@@ -240,7 +246,8 @@ class SerialSimLink(LinkBase):
             lc = p3
             proc = self.rx_card_response(1)
             if proc[0] != ins:
-                logging.error(f"proc byte {ins} expected but {proc[0]} recieved")
+                logging.error(
+                    f"proc byte {ins} expected but {proc[0]} recieved")
             if lc > 0 and len(data):
                 # send proc byte and recieve rest of command
                 self._sl.tx_bytes(data)
