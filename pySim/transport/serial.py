@@ -217,7 +217,7 @@ class SerialSimLink(LinkBase):
         header = apdu[0:5]
         data = apdu[5:]
         self._sl.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
-        print("header: {}".format(header.hex()))
+        logging.info(f"header: {b2h(header)}")
         cla, ins, p1, p2, p3 = header
 
         apdu_type = self._apdu_helper.classify_apdu(header)
@@ -225,7 +225,7 @@ class SerialSimLink(LinkBase):
         case = apdu_type['case']
         le = 2  # per default two SW bytes as expected response
 
-        print("{} -> case {}".format(ins_name, case))
+        logging.info(f"{ins_name} -> case {case}")
 
         if case == 1:  # P3 == 0 -> No Lc/Le
             return self.rx_card_response(le, ins)
@@ -240,15 +240,14 @@ class SerialSimLink(LinkBase):
             lc = p3
             proc = self.rx_card_response(1)
             if proc[0] != ins:
-                print("proc byte {} expected but {} recieved".format(
-                    ins, proc[0]))
+                logging.error(f"proc byte {ins} expected but {proc[0]} recieved")
             if lc > 0 and len(data):
                 # send proc byte and recieve rest of command
                 self._sl.tx_bytes(data)
-                print("data: {}".format(data.hex()))
+                logging.info(f"data: {b2h(data)}")
             return self.rx_card_response(le, ins)
         else:
-            print("unknown apdu case :|")
+            logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
             return self.rx_card_response(le, ins)
 
     def send_apdu_raw(self, pdu):

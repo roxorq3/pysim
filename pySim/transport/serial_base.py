@@ -51,7 +51,7 @@ class SerialBase(object):
 
     def __init__(self, device='/dev/ttyUSB0', clock=3571200, timeout=1):
         if not os.path.exists(device):
-			raise ValueError("device file %s does not exist -- abort" % device)
+            raise ValueError("device file %s does not exist -- abort" % device)
         self._clk = clock
         self._fi = SerialBase.DEFAULT_FI
         self._di = SerialBase.DEFAULT_DI
@@ -74,7 +74,7 @@ class SerialBase(object):
 
     def close(self):
         if (hasattr(self, "_sl")):
-			self._sl.close()
+            self._sl.close()
 
     def _set_baudrate(self, baudrate):
         self._sl.baudrate = baudrate
