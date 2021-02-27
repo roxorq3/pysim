@@ -25,6 +25,7 @@
 from __future__ import absolute_import
 
 import time
+import logging
 
 from pySim.exceptions import NoCardError, ProtocolError
 from pySim.transport import LinkBase
@@ -81,15 +82,17 @@ class SerialSimLink(LinkBase):
         raise NoCardError()
 
     def connect(self, do_pbs=True):
-        self.reset_card()
-        if do_pbs:
-            pbs_request = self.get_pbs_proposal()  # just accept fastest baudrate
-            self.tx_bytes(pbs_request)
-            pbs_response = self.rx_bytes()
-            if pbs_request != pbs_response:  # TX and RX are tied, so we must clear the echo
-                raise ProtocolError(
-                    f"Bad PBS reponse (Expected: {b2h(pbs_request)}, got {b2h(pbs_response)})")
-            logging.info(f"PBS: {b2h(pbs_response)}")
+        self.reset_card(do_pbs)
+
+    def send_pbs(self):
+        pbs_request = self._sl.get_pbs_proposal()  # just accept fastest baudrate
+        self._sl.tx_bytes(pbs_request)
+        pbs_response = self._sl.rx_bytes()
+        if pbs_request != pbs_response:  # TX and RX are tied, so we must clear the echo
+            raise ProtocolError(
+                f"Bad PBS reponse (Expected: {b2h(pbs_request)}, got {b2h(pbs_response)})")
+        self._sl.pbs_sent(pbs_request)
+        logging.info(f"PBS: {b2h(pbs_response)}")
 
     def get_atr(self):
         return self.sl.get_atr()
@@ -97,12 +100,14 @@ class SerialSimLink(LinkBase):
     def disconnect(self):
         self._sl.close()
 
-    def reset_card(self):
+    def reset_card(self, do_pbs=True):
         rv = self._reset_card()
         if rv == 0:
             raise NoCardError()
         elif rv < 0:
             raise ProtocolError()
+        if do_pbs:
+            self.send_pbs()
 
     def _reset_card(self):
         atr = None
@@ -157,7 +162,7 @@ class SerialSimLink(LinkBase):
             atr.append(ord(x))
             logging.debug("Extra: %x" % ord(x))
 
-        self.sl.atr_recieved(atr)
+        self._sl.atr_recieved(atr)
 
         return 1
 
@@ -194,16 +199,16 @@ class SerialSimLink(LinkBase):
 
     # wxt can be set to None when not needed
     def rx_card_response(self, size=SerialBase.BUF_SIZE, proc=None, wxt=SerialBase.WXT_BYTE):
-        if(size > 1 and any([proc, wxt])):
+        if(size > 0 and any([proc, wxt])):
             while True:
                 # recieve first byte and check if it should be discarded, then recieve the rest
                 b = self._sl.rx_byte()
-                if b == wxt:
+                if wxt and wxt in b:
                     logging.info("Received wxt!")
-                elif b == proc:
+                elif proc and proc in b:
                     logging.info("Received proc!")
                 else:
-                    return [b] + self._sl.rx_bytes(size - 1)
+                    return b + self._sl.rx_bytes(size - len(b))
                     break
         else:
             return self._sl.rx_bytes(size)
@@ -211,7 +216,7 @@ class SerialSimLink(LinkBase):
     def tx_apdu(self, apdu):
         header = apdu[0:5]
         data = apdu[5:]
-        self.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
+        self._sl.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
         print("header: {}".format(header.hex()))
         cla, ins, p1, p2, p3 = header
 
@@ -229,7 +234,7 @@ class SerialSimLink(LinkBase):
                 le += 256
             else:
                 le += p3
-            return self.rx_card_response(le+1, ins)
+            return self.rx_card_response(le, ins)
         if (case == 3 or  # P3 = Lc
                 case == 4):  # P3 = Lc, Le encoded in SW
             lc = p3
@@ -239,7 +244,7 @@ class SerialSimLink(LinkBase):
                     ins, proc[0]))
             if lc > 0 and len(data):
                 # send proc byte and recieve rest of command
-                self.tx_bytes(data)
+                self._sl.tx_bytes(data)
                 print("data: {}".format(data.hex()))
             return self.rx_card_response(le, ins)
         else:
@@ -248,27 +253,27 @@ class SerialSimLink(LinkBase):
 
     def send_apdu_raw(self, pdu):
         if isinstance(pdu, str):
-            pdu = hex2bin(pdu)
+            pdu = h2b(pdu)
 
-        response = tx_apdu(pdu)
+        response = self.tx_apdu(pdu)
         # Split datafield from SW
-        if len(data) < 2:
+        if len(response) < 2:
             return None, None
-        sw = data[-2:]
-        data = data[0:-2]
+        sw = response[-2:]
+        data = response[0:-2]
 
         # Return value
         return b2h(data), b2h(sw)
 
-    def send_apdu_raw_deprecated(self, pdu):
+    def send_apdu_raw_bytewise(self, pdu):
         """see LinkBase.send_apdu_raw"""
 
         if isinstance(pdu, str):
-            pdu = hex2bin(pdu)
-        data_len = ord(pdu[4])  # P3
+            pdu = h2b(pdu)
+        data_len = pdu[4]  # P3
 
         # Send first CLASS,INS,P1,P2,P3
-        self._tx_string(pdu[0:5])
+        self._sl.tx_bytes(pdu[0:5])
 
         # Wait ack which can be
         #  - INS: Command acked -> go ahead
@@ -276,9 +281,9 @@ class SerialSimLink(LinkBase):
         #  - SW1: The card can apparently proceed ...
         while True:
             b = self._sl.rx_byte()
-            if b == pdu[1]:
+            if ord(b) == pdu[1]:
                 break
-            elif b != '\x60':
+            elif ord(b) != 0x60:
                 # Ok, it 'could' be SW1
                 sw1 = b
                 sw2 = self._sl.rx_byte()
@@ -290,16 +295,16 @@ class SerialSimLink(LinkBase):
 
         # Send data (if any)
         if len(pdu) > 5:
-            self._tx_string(pdu[5:])
+            self._sl.tx_bytes(pdu[5:])
 
         # Receive data (including SW !)
         #  length = [P3 - tx_data (=len(pdu)-len(hdr)) + 2 (SW1//2) ]
         to_recv = data_len - len(pdu) + 5 + 2
 
-        data = ''
+        data = bytearray()
         while (len(data) < to_recv):
             b = self._sl.rx_byte()
-            if (to_recv == 2) and (b == '\x60'):  # Ignore NIL if we have no RX data (hack ?)
+            if (to_recv == 2) and (ord(b) == 0x60):  # Ignore NIL if we have no RX data (hack ?)
                 continue
             if not b:
                 break

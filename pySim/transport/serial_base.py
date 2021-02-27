@@ -25,9 +25,10 @@ from __future__ import absolute_import
 
 import serial
 import logging
+import os.path
 
 from pySim.exceptions import ProtocolError
-from pySim.utils import b2h
+from pySim.utils import calculate_checksum_xor, b2h, i2h
 
 
 class SerialBase(object):
@@ -48,7 +49,9 @@ class SerialBase(object):
 
     BUF_SIZE = 256
 
-    def __init__(self, device='/dev/ttyUSB0', clock=3571200):
+    def __init__(self, device='/dev/ttyUSB0', clock=3571200, timeout=1):
+        if not os.path.exists(device):
+			raise ValueError("device file %s does not exist -- abort" % device)
         self._clk = clock
         self._fi = SerialBase.DEFAULT_FI
         self._di = SerialBase.DEFAULT_DI
@@ -59,7 +62,7 @@ class SerialBase(object):
             parity=serial.PARITY_EVEN,
             bytesize=serial.EIGHTBITS,
             stopbits=serial.STOPBITS_TWO,
-            timeout=5,
+            timeout=timeout,
             xonxoff=0,
             rtscts=0,
             baudrate=self._calculate_baudrate(),
@@ -70,7 +73,8 @@ class SerialBase(object):
         self.close()
 
     def close(self):
-        self._sl.close()
+        if (hasattr(self, "_sl")):
+			self._sl.close()
 
     def _set_baudrate(self, baudrate):
         self._sl.baudrate = baudrate
@@ -113,7 +117,7 @@ class SerialBase(object):
 
         serial_baudrate = self._calculate_baudrate()
         self._set_baudrate(serial_baudrate)
-        self._sl.set_inter_byte_timeout(0.01)
+        self._set_inter_byte_timeout(0.01)
         logging.info(
             f"update fidi: {self._calculate_f()}/{self._calculate_d()} --> new baudrate: {serial_baudrate}")
 
@@ -145,20 +149,25 @@ class SerialBase(object):
                 f"Bad echo value (Expected: {b2h(buf)}, got {b2h(r)})")
 
     def rx_byte(self):
+        #tmp = self._sl.timeout
+        #self._sl.timeout = 0 #non blocking mode --> return empty string when there is nothing to read
         b = self._sl.read()
-        logging.debug(f"rx_byte: {b2h(b)}")
+        #self._sl.timeout = tmp
+        logging.debug(f"rx_byte: {i2h(b)}")
         return b
 
-    def rx_bytes(self, size):
+    def rx_bytes(self, size=None):
+        if size is None:
+            size = SerialBase.BUF_SIZE
         buf = self._sl.read(size)
         logging.debug(f"rx_bytes [{len(buf)}/{size}]: {b2h(buf)}")
-        return s
+        return buf
 
     def reset_input_buffer(self):
         self._sl.reset_input_buffer()
 
     def setRTS(self, level=True):
         self._sl.rts = level
-        
+
     def setDTR(self, level=True):
         self._sl.dtr = level

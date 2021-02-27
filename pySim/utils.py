@@ -23,10 +23,12 @@
 
 
 def h2b(s):
-	return ''.join([chr((int(x,16)<<4)+int(y,16)) for x,y in zip(s[0::2], s[1::2])])
+	#return ''.join([chr((int(x,16)<<4)+int(y,16)) for x,y in zip(s[0::2], s[1::2])])
+	return bytes.fromhex(s)
 
 def b2h(s):
-	return ''.join(['%02x'%ord(x) for x in s])
+	#return ''.join(['%02x'%ord(x) for x in s])
+	return s.hex()
 
 def h2i(s):
 	return [(int(x,16)<<4)+int(y,16) for x,y in zip(s[0::2], s[1::2])]
@@ -622,7 +624,8 @@ def init_reader(opts):
 	else: # Serial reader is default
 		print("Using serial reader interface")
 		from pySim.transport.serial import SerialSimLink
-		sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate)
+		#sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate)
+		sl = SerialSimLink(device=opts.device)
 
 	return sl
 
