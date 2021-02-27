@@ -46,6 +46,7 @@ class SerialBase(object):
     ATR_BYTE = 0x3b
     PPS_BYTE = 0xff
     WXT_BYTE = 0x60
+    SW_LEN = 2
 
     BUF_SIZE = 256
 
@@ -106,12 +107,12 @@ class SerialBase(object):
                 f"Bad ATR header. Expected {SerialBase.ATR_BYTE}, got {atr[0]})")
         self._atr = atr
 
-    def pbs_sent(self, pbs):
-        if pbs[0] != SerialBase.PPS_BYTE:
+    def pps_sent(self, pps):
+        if pps[0] != SerialBase.PPS_BYTE:
             raise ProtocolError(
-                f"Bad PBS header. Expected {SerialBase.PPS_BYTE}, got {pbs[0]})")
+                f"Bad PPS header. Expected {SerialBase.PPS_BYTE}, got {pps[0]})")
 
-        fidi = pbs[2]
+        fidi = pps[2]
         self._fi = fidi >> 4 & 0x0f
         self._di = fidi & 0x0f
 
@@ -121,14 +122,14 @@ class SerialBase(object):
         logging.info(
             f"update fidi: {self._calculate_f()}/{self._calculate_d()} --> new baudrate: {serial_baudrate}")
 
-    def get_pbs_proposal(self):
+    def get_pps_proposal(self):
         if not self._atr:
             raise NotInitializedError(
-                "ATR not received yet --> cannot calculate pbs!")
-        pbs = bytearray([0xff, 0x10])
-        pbs.append(self._atr[2])  # TA1
-        pbs.append(calculate_checksum_xor(pbs))
-        return pbs
+                "ATR not received yet --> cannot calculate pps!")
+        pps = bytearray([0xff, 0x10])
+        pps.append(self._atr[2])  # TA1
+        pps.append(calculate_checksum_xor(pps))
+        return pps
 
     def tx_byte(self, b):
         logging.debug(f"tx_byte: {b2h(b)}")

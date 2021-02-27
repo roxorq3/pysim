@@ -86,18 +86,18 @@ class SerialSimLink(LinkBase):
         # Timed out ...
         raise NoCardError()
 
-    def connect(self, do_pbs=True):
-        self.reset_card(do_pbs)
+    def connect(self, do_pps=True):
+        self.reset_card(do_pps)
 
-    def send_pbs(self):
-        pbs_request = self._sl.get_pbs_proposal()  # just accept fastest baudrate
-        self._sl.tx_bytes(pbs_request)
-        pbs_response = self._sl.rx_bytes()
-        if pbs_request != pbs_response:  # TX and RX are tied, so we must clear the echo
+    def send_pps(self):
+        pps_request = self._sl.get_pps_proposal()  # just accept fastest baudrate
+        self._sl.tx_bytes(pps_request)
+        pps_response = self._sl.rx_bytes()
+        if pps_request != pps_response:  # TX and RX are tied, so we must clear the echo
             raise ProtocolError(
-                f"Bad PBS reponse (Expected: {b2h(pbs_request)}, got {b2h(pbs_response)})")
-        self._sl.pbs_sent(pbs_request)
-        logging.info(f"PBS: {b2h(pbs_response)}")
+                f"Bad PPS reponse (Expected: {b2h(pps_request)}, got {b2h(pps_response)})")
+        self._sl.pps_sent(pps_request)
+        logging.info(f"PPS: {b2h(pps_response)}")
 
     def get_atr(self):
         return self.sl.get_atr()
@@ -106,14 +106,14 @@ class SerialSimLink(LinkBase):
         if (hasattr(self, "_sl")):
             self._sl.close()
 
-    def reset_card(self, do_pbs=True):
+    def reset_card(self, do_pps=True):
         rv = self._reset_card()
         if rv == 0:
             raise NoCardError()
         elif rv < 0:
             raise ProtocolError()
-        if do_pbs:
-            self.send_pbs()
+        if do_pps:
+            self.send_pps()
 
     def _reset_card(self):
         atr = None
@@ -229,7 +229,7 @@ class SerialSimLink(LinkBase):
         apdu_type = self._apdu_helper.classify_apdu(header)
         ins_name = apdu_type['name']
         case = apdu_type['case']
-        le = 2  # per default two SW bytes as expected response
+        le = SerialBase.SW_LEN  # per default two SW bytes as expected response
 
         logging.info(f"{ins_name} -> case {case}")
 
