@@ -100,7 +100,7 @@ class SerialSimLink(LinkBase):
         logging.info(f"PPS: {b2h(pps_response)}")
 
     def get_atr(self):
-        return self.sl.get_atr()
+        return self._sl.get_atr()
 
     def disconnect(self):
         if (hasattr(self, "_sl")):
