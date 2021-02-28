@@ -40,7 +40,7 @@ class VirtualSim(threading.Thread):
         "3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
 
     def __init__(self, device='/dev/ttyUSB0', clock=3842000, apdu_callback_handler=None, timeout=60):
-        super(SerialModemLink, self).__init__()
+        super(VirtualSim, self).__init__()
         self.daemon = True
         self._sl = SerialBase(device, clock, timeout)
         self._handle_apdu_callback = apdu_callback_handler   #handle_apdu(pdu, len)
