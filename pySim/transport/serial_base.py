@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-""" pySim: Transport Link for serial (RS232) based readers included with simcard
-"""
-
 #
 # Copyright (C) 2018-2021  Gabriel K. Gegenhuber <ggegenhuber@sba-research.org>
 #
@@ -105,7 +102,7 @@ class SerialBase(object):
         if atr[0] != SerialBase.ATR_BYTE:
             raise ProtocolError(
                 f"Bad ATR header. Expected {SerialBase.ATR_BYTE}, got {atr[0]})")
-        self._atr = atr
+        self._atr = bytes(atr)
 
     def pps_sent(self, pps):
         if pps[0] != SerialBase.PPS_BYTE:
