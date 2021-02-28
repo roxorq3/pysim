@@ -117,7 +117,7 @@ class VirtualSim(threading.Thread):
         # except Exception as e:
         #    logging.info(e)
         finally:
-            if(self._alive)
+            if self._alive:
                 logging.info("leaving apdu loop")
             else:
                 logging.info("something went wrong -> leaving apdu loop")
