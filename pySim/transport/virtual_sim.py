@@ -23,6 +23,9 @@
 #    pass
 
 import threading
+from pySim.transport.serial_base import SerialBase
+from pySim.transport.apdu_helper import ApduHelper
+from pySim.utils import h2b, b2h
 
 class VirtualSim(threading.Thread):
     HEADER_LEN = 5  # 5 header bytes (cla, ins, p1, p2, p3)
