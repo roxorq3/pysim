@@ -18,20 +18,19 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-#class VirtualSimCallback(object):
+# class VirtualSimCallback(object):
 #    def handle_apdu(self, pdu, expected_len):
 #    pass
 
+import logging
 import threading
+from pySim.exceptions import NotInitializedError
 from pySim.transport.serial_base import SerialBase
 from pySim.transport.apdu_helper import ApduHelper
 from pySim.utils import h2b, b2h
 
+
 class VirtualSim(threading.Thread):
-    HEADER_LEN = 5  # 5 header bytes (cla, ins, p1, p2, p3)
-
-    PPS_LEN = 4
-
     # with this atr max avail speed is same as initial speed --> no pps
     ATR_SLOW = h2b(
         "3b 9f 01 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 15")
@@ -43,7 +42,8 @@ class VirtualSim(threading.Thread):
         super(VirtualSim, self).__init__()
         self.daemon = True
         self._sl = SerialBase(device, clock, timeout)
-        self._handle_apdu_callback = apdu_callback_handler   #handle_apdu(pdu, len)
+        # handle_apdu(pdu, len)
+        self._handle_apdu_callback = apdu_callback_handler
         self._apdu_helper = ApduHelper()
         self._initialized = False
         self._wxt_timer = None
@@ -58,12 +58,12 @@ class VirtualSim(threading.Thread):
 
     def send_atr(self, do_pps=True):
         self._sl.reset_input_buffer()
-        atr = SerialModemLink.ATR_OFFER_PPS if do_pps else SerialModemLink.ATR_SLOW
+        atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
 
         self._sl.tx_bytes(atr)
         self._sl.atr_recieved(atr)
-        if self.do_pps:
-            pps_request = self._sl.rx_bytes(SerialModemLink.PPS_LEN)
+        if do_pps:
+            pps_request = self._sl.rx_bytes(SerialBase.PPS_LEN)
             self._sl.tx_bytes(pps_request)
             self._sl.pps_sent(pps_request)
         self._initialized = True
@@ -71,37 +71,41 @@ class VirtualSim(threading.Thread):
     def send_wxt(self):
         self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
         logging.info("half waiting time exceeded --> wxt sent")
-        self.wxt_timer = Timer(self.get_wxt_timeout(), self.send_wxt)
-        self.wxt_timer.start()
 
-    def get_wxt_timeout():
+    def get_wxt_timeout(self):
         return self._sl.get_waiting_time()/2
 
     def create_wxt_thread(self):
-        stop = Event()
+        stop = threading.Event()
+
         def loop():
             while not stop.wait(self.get_wxt_timeout()):
                 self.send_wxt()
-        Thread(target=loop, daemon=True).start()    
+        threading.Thread(target=loop, daemon=True).start()
         return stop
 
     def handle_apdu(self, apdu, expected_len):
+        #virtual, needs to be implemented
+        raise NotImplementedError()
+
+    def handle_apdu_with_wxt(self, apdu, expected_len):
         stop_wxt_thread = self.create_wxt_thread()
         try:
             logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
-            response = self._handle_apdu_callback(apdu, expected_len)
+            response = self.handle_apdu(apdu, expected_len)
             logging.info(f"recieved apdu response: {b2h(response)}")
             return response
         except:
             logging.error("handle_apdu_callback raised exception :X")
             raise
         finally:
-            stop_wxt_thread.set()   #disalbe wxt thread by setting event
+            stop_wxt_thread.set()  # disalbe wxt thread by setting event
             return
 
     def run(self):
-        if not _initialized:
-            raise NotInitializedError("ATR not received yet --> cannot start apdu loop!")
+        if not self._sl.get_atr():
+            raise NotInitializedError(
+                "ATR not received yet --> cannot start apdu loop!")
         self._alive = True
         self.run_apdu_loop()
         return
@@ -115,8 +119,8 @@ class VirtualSim(threading.Thread):
     def run_apdu_loop(self):
         try:
             while self._alive:
-                apdu, le = self._sl.rx_apdu() 
-                response = self.handle_apdu(apdu, le + SerialBase.SW_LEN)
+                apdu, le = self.rx_apdu()
+                response = self.handle_apdu_with_wxt(apdu, le + SerialBase.SW_LEN)
                 self._sl.tx_bytes(response)
         # except Exception as e:
         #    logging.info(e)
@@ -129,7 +133,8 @@ class VirtualSim(threading.Thread):
             self.disconnect()
 
     def rx_apdu(self):
-        apdu = self.rx_bytes(SerialModemLink.HEADER_LEN) # receive (cla, ins, p1, p2, p3)
+        # receive (cla, ins, p1, p2, p3)
+        apdu = self._sl.rx_bytes(SerialBase.HEADER_LEN)
         logging.info("header: {b2h(data)}")
         cla, ins, p1, p2, p3 = apdu
         apdu_type = self._apdu_helper.classify_apdu(apdu)
@@ -143,7 +148,7 @@ class VirtualSim(threading.Thread):
             # self.tx_bytes(bytes([ins])) #actually it still works when sending the procedure byte :O
             return apdu, le
         if case == 2:  # P3 == Le
-            self.tx_bytes(bytes([ins]))
+            self._sl.tx_bytes(bytes([ins]))
             if p3 == 0:
                 le += 256
             else:
@@ -154,8 +159,8 @@ class VirtualSim(threading.Thread):
             lc = p3
             if lc > 0:
                 # send proc byte and recieve rest of command
-                self.tx_bytes(bytes([ins]))
-                data = self.rx_bytes(lc)
+                self._sl.tx_bytes(bytes([ins]))
+                data = self._sl.rx_bytes(lc)
                 logging.info(f"data: {b2h(data)}")
                 apdu += data
             return apdu, le

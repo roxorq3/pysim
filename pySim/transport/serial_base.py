@@ -24,7 +24,7 @@ import serial
 import logging
 import os.path
 
-from pySim.exceptions import ProtocolError
+from pySim.exceptions import ProtocolError, NotInitializedError
 from pySim.utils import calculate_checksum_xor, b2h, i2h
 
 
@@ -40,10 +40,13 @@ class SerialBase(object):
     TBL_BITRATEFACTOR = ['RFU', 1, 2, 4, 8, 16, 32, 'RFU', 12, 20, 'RFU',
                          'RFU', 'RFU', 'RFU', 'RFU', 'RFU']
 
+    HEADER_LEN = 5  # 5 header bytes (cla, ins, p1, p2, p3)
+    PPS_LEN = 4
+    SW_LEN = 2
+
     ATR_BYTE = 0x3b
     PPS_BYTE = 0xff
     WXT_BYTE = 0x60
-    SW_LEN = 2
 
     BUF_SIZE = 256
 
@@ -148,7 +151,7 @@ class SerialBase(object):
 
     def rx_byte(self):
         #tmp = self._sl.timeout
-        #self._sl.timeout = 0 #non blocking mode --> return empty string when there is nothing to read
+        # self._sl.timeout = 0 #non blocking mode --> return empty string when there is nothing to read
         b = self._sl.read()
         #self._sl.timeout = tmp
         logging.debug(f"rx_byte: {i2h(b)}")
@@ -169,3 +172,7 @@ class SerialBase(object):
 
     def setDTR(self, level=True):
         self._sl.dtr = level
+
+    def cancel_read(self):
+        if hasattr(self._sl, 'cancel_read'):
+            self._sl.cancel_read()
