@@ -134,7 +134,7 @@ class VirtualSim(threading.Thread):
     def rx_apdu(self):
         # receive (cla, ins, p1, p2, p3)
         apdu = self._sl.rx_bytes(SerialBase.HEADER_LEN)
-        logging.info("header: {b2h(data)}")
+        logging.info(f"header: {b2h(apdu)}")
         cla, ins, p1, p2, p3 = apdu
         apdu_type = self._apdu_helper.classify_apdu(apdu)
         ins_name = apdu_type['name']
