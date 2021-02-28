@@ -22,6 +22,7 @@
 #    def handle_apdu(self, pdu, expected_len):
 #    pass
 
+import threading
 
 class VirtualSim(threading.Thread):
     HEADER_LEN = 5  # 5 header bytes (cla, ins, p1, p2, p3)
