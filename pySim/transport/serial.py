@@ -246,8 +246,8 @@ class SerialSimLink(LinkBase):
             lc = p3
             proc = self.rx_card_response(1)
             if proc[0] != ins:
-                logging.error(
-                    f"proc byte {ins} expected but {proc[0]} recieved")
+                #logging.error(f"proc byte {ins} expected but {proc[0]} recieved")
+                return proc + self.rx_card_response(1) #received sw1 instead of proc byte; get sw2 and return
             if lc > 0 and len(data):
                 # send proc byte and recieve rest of command
                 self._sl.tx_bytes(data)
