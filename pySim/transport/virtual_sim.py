@@ -100,7 +100,6 @@ class VirtualSim(threading.Thread):
             raise
         finally:
             stop_wxt_thread.set()  # disalbe wxt thread by setting event
-            return
 
     def run(self):
         if not self._sl.get_atr():
@@ -125,8 +124,8 @@ class VirtualSim(threading.Thread):
         # except Exception as e:
         #    logging.info(e)
         finally:
-            if self._alive:
-                logging.info("leaving apdu loop")
+            if not self._alive:
+                logging.info("thread stopped, leaving apdu loop")
             else:
                 logging.info("something went wrong -> leaving apdu loop")
             self._alive = False
