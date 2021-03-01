@@ -45,7 +45,9 @@ class SerialSimLink(LinkBase):
         self.disconnect()
 
     def _calculate_clk(self):
-        clk = self._baudrate * SerialBase.TBL_BITRATEFACTOR[SerialBase.DEFAULT_DI] * SerialBase.TBL_CLOCKRATECONVERSION[SerialBase.DEFAULT_FI]
+        clk = self._baudrate * \
+            SerialBase.TBL_BITRATEFACTOR[SerialBase.DEFAULT_DI] * \
+            SerialBase.TBL_CLOCKRATECONVERSION[SerialBase.DEFAULT_FI]
         return clk
 
     def wait_for_card(self, timeout=None, newcardonly=False):
@@ -247,7 +249,8 @@ class SerialSimLink(LinkBase):
             proc = self.rx_card_response(1)
             if proc[0] != ins:
                 #logging.error(f"proc byte {ins} expected but {proc[0]} recieved")
-                return proc + self.rx_card_response(1) #received sw1 instead of proc byte; get sw2 and return
+                # received sw1 instead of proc byte; get sw2 and return
+                return proc + self.rx_card_response(1)
             if lc > 0 and len(data):
                 # send proc byte and recieve rest of command
                 self._sl.tx_bytes(data)
