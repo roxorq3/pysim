@@ -105,10 +105,6 @@ class VirtualSim(threading.Thread):
         threading.Thread(target=loop, daemon=True).start()
         return stop
 
-    def handle_apdu(self, apdu, expected_len):
-        # virtual, needs to be implemented
-        raise NotImplementedError()
-
     def _handle_apdu_with_wxt(self, apdu, expected_len):
         stop_wxt_thread = self._create_wxt_thread()
         try:
@@ -167,3 +163,7 @@ class VirtualSim(threading.Thread):
             self._sl.tx_bytes(pps_request)
             self._sl.pps_sent(pps_request)
         self._initialized = True
+
+    def handle_apdu(self, apdu, expected_len):
+        # virtual, needs to be implemented
+        raise NotImplementedError()
