@@ -50,88 +50,10 @@ class VirtualSim(threading.Thread):
         self._alive = False
 
     def __del__(self):
+        self.stop()
         self.disconnect()
 
-    def disconnect(self):
-        if (hasattr(self, "_sl")):
-            self._sl.close()
-
-    def send_atr(self, do_pps=True):
-        self._sl.reset_input_buffer()
-        atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
-
-        self._sl.tx_bytes(atr)
-        self._sl.atr_recieved(atr)
-        if do_pps:
-            pps_request = self._sl.rx_bytes(SerialBase.PPS_LEN)
-            self._sl.tx_bytes(pps_request)
-            self._sl.pps_sent(pps_request)
-        self._initialized = True
-
-    def send_wxt(self):
-        self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
-        logging.info("half waiting time exceeded --> wxt sent")
-
-    def get_wxt_timeout(self):
-        return self._sl.get_waiting_time()/2
-
-    def create_wxt_thread(self):
-        stop = threading.Event()
-
-        def loop():
-            while not stop.wait(self.get_wxt_timeout()):
-                self.send_wxt()
-        threading.Thread(target=loop, daemon=True).start()
-        return stop
-
-    def handle_apdu(self, apdu, expected_len):
-        #virtual, needs to be implemented
-        raise NotImplementedError()
-
-    def handle_apdu_with_wxt(self, apdu, expected_len):
-        stop_wxt_thread = self.create_wxt_thread()
-        try:
-            logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
-            response = self.handle_apdu(apdu, expected_len)
-            logging.info(f"recieved apdu response: {b2h(response)}")
-            return response
-        except:
-            logging.error("handle_apdu_callback raised exception :X")
-            raise
-        finally:
-            stop_wxt_thread.set()  # disalbe wxt thread by setting event
-
-    def run(self):
-        if not self._sl.get_atr():
-            raise NotInitializedError(
-                "ATR not received yet --> cannot start apdu loop!")
-        self._alive = True
-        self.run_apdu_loop()
-        return
-
-    def stop(self):
-        self._alive = False
-        if hasattr(self._sl, 'cancel_read'):
-            self._sl.cancel_read()
-        self.join(timeout=5)
-
-    def run_apdu_loop(self):
-        try:
-            while self._alive:
-                apdu, le = self.rx_apdu()
-                response = self.handle_apdu_with_wxt(apdu, le + SerialBase.SW_LEN)
-                self._sl.tx_bytes(response)
-        # except Exception as e:
-        #    logging.info(e)
-        finally:
-            if not self._alive:
-                logging.info("thread stopped, leaving apdu loop")
-            else:
-                logging.info("something went wrong -> leaving apdu loop")
-            self._alive = False
-            self.disconnect()
-
-    def rx_apdu(self):
+    def _rx_apdu(self):
         # receive (cla, ins, p1, p2, p3)
         apdu = self._sl.rx_bytes(SerialBase.HEADER_LEN)
         logging.info(f"header: {b2h(apdu)}")
@@ -166,3 +88,82 @@ class VirtualSim(threading.Thread):
         else:
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
             return apdu, le
+
+    def _send_wxt(self):
+        self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
+        logging.info("half waiting time exceeded --> wxt sent")
+
+    def _get_wxt_timeout(self):
+        return self._sl.get_waiting_time()/2
+
+    def _create_wxt_thread(self):
+        stop = threading.Event()
+
+        def loop():
+            while not stop.wait(self._get_wxt_timeout()):
+                self._send_wxt()
+        threading.Thread(target=loop, daemon=True).start()
+        return stop
+
+    def handle_apdu(self, apdu, expected_len):
+        # virtual, needs to be implemented
+        raise NotImplementedError()
+
+    def _handle_apdu_with_wxt(self, apdu, expected_len):
+        stop_wxt_thread = self._create_wxt_thread()
+        try:
+            logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
+            response = self.handle_apdu(apdu, expected_len)
+            logging.info(f"recieved apdu response: {b2h(response)}")
+            return response
+        except:
+            logging.error("handle_apdu_callback raised exception :X")
+            raise
+        finally:
+            stop_wxt_thread.set()  # disalbe wxt thread by setting event
+
+    def _run_apdu_loop(self):
+        try:
+            while self._alive:
+                apdu, le = self._rx_apdu()
+                response = self._handle_apdu_with_wxt(
+                    apdu, le + SerialBase.SW_LEN)
+                self._sl.tx_bytes(response)
+        # except Exception as e:
+        #    logging.info(e)
+        finally:
+            if not self._alive:
+                logging.info("thread stopped, leaving apdu loop")
+            else:
+                logging.info("something went wrong -> leaving apdu loop")
+            self._alive = False
+
+    def run(self):
+        if not self._sl.get_atr():
+            raise NotInitializedError(
+                "ATR not received yet --> cannot start apdu loop!")
+        self._alive = True
+        self._run_apdu_loop()
+        return
+
+    def stop(self):
+        self._alive = False
+        if hasattr(self._sl, 'cancel_read'):
+            self._sl.cancel_read()
+        self.join(timeout=5)
+
+    def disconnect(self):
+        if (hasattr(self, "_sl")):
+            self._sl.close()
+
+    def send_atr(self, do_pps=True):
+        self._sl.reset_input_buffer()
+        atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
+
+        self._sl.tx_bytes(atr)
+        self._sl.atr_recieved(atr)
+        if do_pps:
+            pps_request = self._sl.rx_bytes(SerialBase.PPS_LEN)
+            self._sl.tx_bytes(pps_request)
+            self._sl.pps_sent(pps_request)
+        self._initialized = True
