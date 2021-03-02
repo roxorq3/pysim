@@ -69,7 +69,7 @@ class VirtualSim(threading.Thread):
             # self.tx_bytes(bytes([ins])) #actually it still works when sending the procedure byte :O
             return apdu, le
         if case == 2:  # P3 == Le
-            self._sl.tx_bytes(bytes([ins]))
+            #self._sl.tx_bytes(bytes([ins]))
             if p3 == 0:
                 le += 256
             else:
