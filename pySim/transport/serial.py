@@ -260,7 +260,7 @@ class SerialSimLink(LinkBase):
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
             return self.rx_card_response(le, ins)
 
-    def send_apdu_raw(self, pdu):
+    def send_apdu_raw_new(self, pdu):
         if isinstance(pdu, str):
             pdu = h2b(pdu)
 
@@ -274,7 +274,7 @@ class SerialSimLink(LinkBase):
         # Return value
         return b2h(data), b2h(sw)
 
-    def send_apdu_raw_bytewise(self, pdu):
+    def send_apdu_raw(self, pdu):
         """see LinkBase.send_apdu_raw"""
 
         if isinstance(pdu, str):
