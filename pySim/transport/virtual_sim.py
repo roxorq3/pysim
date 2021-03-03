@@ -66,10 +66,8 @@ class VirtualSim(threading.Thread):
         logging.info(f"{ins_name} -> case {case}")
 
         if case == 1:  # P3 == 0 -> No Lc/Le
-            # self.tx_bytes(bytes([ins])) #actually it still works when sending the procedure byte :O
             return apdu, le
         if case == 2:  # P3 == Le
-            #self._sl.tx_bytes(bytes([ins]))
             if p3 == 0:
                 le += 256
             else:

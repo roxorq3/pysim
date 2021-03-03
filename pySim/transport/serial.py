@@ -242,7 +242,7 @@ class SerialSimLink(LinkBase):
                 le += 256
             else:
                 le += p3
-            return self.rx_card_response(le, ins) #+1 proc byte?
+            return self.rx_card_response(le, ins)
         if (case == 3 or  # P3 = Lc
                 case == 4):  # P3 = Lc, Le encoded in SW
             lc = p3
