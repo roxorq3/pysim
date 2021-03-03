@@ -108,6 +108,9 @@ class VirtualSim(threading.Thread):
         try:
             logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
             response = self.handle_apdu(apdu, expected_len)
+            #modem expects additional instruction byte in response for apdu case 2
+            if len(response) > 2:
+                response = bytes(apdu[1]) + response
             logging.info(f"recieved apdu response: {b2h(response)}")
             return response
         except:
