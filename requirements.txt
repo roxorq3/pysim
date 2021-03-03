@@ -1,6 +1,7 @@
 pyyaml
 pytlv
 pyscard
+cmd2
 
 # Forked Pyserial with inter_byte_timeout fix:
 -e git+https://github.com/mahatma1/pyserial.git@f251884cbcfd5c34ace7d31138d755b67c3db1a3#egg=pyserial
