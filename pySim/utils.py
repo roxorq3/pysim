@@ -28,7 +28,7 @@ def h2b(s):
 def b2h(b):
 	"""convert from a sequence of bytes to a string of hex nibbles"""
 	#return ''.join(['%02x'%(x) for x in b])
-	return s.hex()
+	return b.hex()
 
 def h2i(s):
 	return [(int(x,16)<<4)+int(y,16) for x,y in zip(s[0::2], s[1::2])]
@@ -770,7 +770,7 @@ def calculate_checksum_xor(bytelist):
 	for b in bytelist:
 		checksum ^= b
 	return checksum
-	
+
 def sw_match(sw, pattern):
 	"""Match given SW against given pattern."""
 	# Create a masked version of the returned status word
