@@ -173,6 +173,9 @@ class SerialBase(object):
     def setDTR(self, level=True):
         self._sl.dtr = level
 
+    def is_open(self):
+        return self._sl.is_open
+
     def cancel_read(self):
         if hasattr(self._sl, 'cancel_read'):
             self._sl.cancel_read()

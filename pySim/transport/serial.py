@@ -35,9 +35,10 @@ from pySim.utils import h2b, b2h
 
 class SerialSimLink(LinkBase):
     def __init__(self, device='/dev/ttyUSB0', baudrate=9600, rst='-rts'):
-        self._rst_pin = rst
+        self._device = device
         self._baudrate = baudrate
-        self._sl = SerialBase(device, self._calculate_clk())
+        self._rst_pin = rst
+        self._sl = SerialBase(self._device, self._calculate_clk())
         self._apdu_helper = ApduHelper()
 
     def __del__(self):
@@ -88,8 +89,8 @@ class SerialSimLink(LinkBase):
         raise NoCardError()
 
     def connect(self, do_pps=True):
-        if not self._sl.is_open:
-            self._sl = SerialBase(device, self._calculate_clk())
+        if not self._sl.is_open():
+            self._sl = SerialBase(self._device, self._calculate_clk())
         self.reset_card(do_pps)
 
     def send_pps(self):
