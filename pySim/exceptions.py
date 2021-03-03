@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """ pySim: Exceptions
@@ -6,6 +5,7 @@
 
 #
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
+# Copyright (C) 2021 Harald Welte <laforge@osmocom.org>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -39,6 +39,18 @@ class ReaderError(Exception):
 	pass
 
 class NotInitializedError(Exception):
-        pass
+	pass
 
-
+class SwMatchError(Exception):
+	"""Raised when an operation specifies an expected SW but the actual SW from
+	   the card doesn't match."""
+	def __init__(self, sw_actual, sw_expected, rs=None):
+		self.sw_actual = sw_actual
+		self.sw_expected = sw_expected
+		self.rs = rs
+	def __str__(self):
+		if self.rs:
+			r = self.rs.interpret_sw(sw_actual)
+			if r:
+				return "SW match failed! Expected %s and got %s: %s - %s" % (self.sw_expected, self.sw_actual, r[0], r[1])
+		return "SW match failed! Expected %s and got %s." % (self.sw_expected, self.sw_actual)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """ pySim: Card programmation logic
@@ -45,7 +44,7 @@ class Card(object):
 		return
 
 	def file_exists(self, fid):
-		res_arr = self._scc.try_select_file(fid)
+		res_arr = self._scc.try_select_path(fid)
 		for res in res_arr:
 			if res[1] != '9000':
 				return False
@@ -478,7 +477,7 @@ class _MagicSimBase(Card):
 		"""
 		f = self._files['name']
 
-		r = self._scc.select_file(['3f00', '7f4d', f[0]])
+		r = self._scc.select_path(['3f00', '7f4d', f[0]])
 		rec_len = int(r[-1][28:30], 16)
 		tlen = int(r[-1][4:8],16)
 		rec_cnt = (tlen / rec_len) - 1
@@ -490,7 +489,7 @@ class _MagicSimBase(Card):
 
 	def program(self, p):
 		# Go to dir
-		self._scc.select_file(['3f00', '7f4d'])
+		self._scc.select_path(['3f00', '7f4d'])
 
 		# Home PLMN in PLMN_Sel format
 		hplmn = enc_plmn(p['mcc'], p['mnc'])
@@ -534,7 +533,7 @@ class _MagicSimBase(Card):
 			# FIXME
 
 		# Write PLMN_Sel forcefully as well
-		r = self._scc.select_file(['3f00', '7f20', '6f30'])
+		r = self._scc.select_path(['3f00', '7f20', '6f30'])
 		tl = int(r[-1][4:8], 16)
 
 		hplmn = enc_plmn(p['mcc'], p['mnc'])
@@ -608,7 +607,7 @@ class FakeMagicSim(Card):
 		and entry size
 		"""
 
-		r = self._scc.select_file(['3f00', '000c'])
+		r = self._scc.select_path(['3f00', '000c'])
 		rec_len = int(r[-1][28:30], 16)
 		tlen = int(r[-1][4:8],16)
 		rec_cnt = (tlen / rec_len) - 1
@@ -620,7 +619,7 @@ class FakeMagicSim(Card):
 
 	def program(self, p):
 		# Home PLMN
-		r = self._scc.select_file(['3f00', '7f20', '6f30'])
+		r = self._scc.select_path(['3f00', '7f20', '6f30'])
 		tl = int(r[-1][4:8], 16)
 
 		hplmn = enc_plmn(p['mcc'], p['mnc'])
@@ -632,7 +631,7 @@ class FakeMagicSim(Card):
 		# Set first entry
 		entry = (
 			'81' +					#  1b  Status: Valid & Active
-			rpad(b2h(p['name'][0:14]), 28) +	# 14b  Entry Name
+			rpad(s2h(p['name'][0:14]), 28) +	# 14b  Entry Name
 			enc_iccid(p['iccid']) +			# 10b  ICCID
 			enc_imsi(p['imsi']) +			#  9b  IMSI_len + id_type(9) + IMSI
 			p['ki'] +				# 16b  Ki
@@ -675,11 +674,11 @@ class GrcardSim(Card):
 		self._scc.verify_chv(5, pin)
 
 		# EF.ICCID
-		r = self._scc.select_file(['3f00', '2fe2'])
+		r = self._scc.select_path(['3f00', '2fe2'])
 		data, sw = self._scc.update_binary('2fe2', enc_iccid(p['iccid']))
 
 		# EF.IMSI
-		r = self._scc.select_file(['3f00', '7f20', '6f07'])
+		r = self._scc.select_path(['3f00', '7f20', '6f07'])
 		data, sw = self._scc.update_binary('6f07', enc_imsi(p['imsi']))
 
 		# EF.ACC
@@ -688,7 +687,7 @@ class GrcardSim(Card):
 
 		# EF.SMSP
 		if p.get('smsp'):
-			r = self._scc.select_file(['3f00', '7f10', '6f42'])
+			r = self._scc.select_path(['3f00', '7f10', '6f42'])
 			data, sw = self._scc.update_record('6f42', 1, lpad(p['smsp'], 80))
 
 		# Set the Ki using proprietary command
@@ -696,13 +695,13 @@ class GrcardSim(Card):
 		data, sw = self._scc._tp.send_apdu(pdu)
 
 		# EF.HPLMN
-		r = self._scc.select_file(['3f00', '7f20', '6f30'])
+		r = self._scc.select_path(['3f00', '7f20', '6f30'])
 		size = int(r[-1][4:8], 16)
 		hplmn = enc_plmn(p['mcc'], p['mnc'])
 		self._scc.update_binary('6f30', hplmn + 'ff' * (size-3))
 
 		# EF.SPN (Service Provider Name)
-		r = self._scc.select_file(['3f00', '7f20', '6f30'])
+		r = self._scc.select_path(['3f00', '7f20', '6f30'])
 		size = int(r[-1][4:8], 16)
 		# FIXME
 
@@ -773,7 +772,7 @@ class SysmoSIMgr2(Card):
 	def program(self, p):
 
 		# select MF
-		r = self._scc.select_file(['3f00'])
+		r = self._scc.select_path(['3f00'])
 
 		# authenticate as SUPER ADM using default key
 		self._scc.verify_chv(0x0b, h2b("3838383838383838"))
@@ -799,7 +798,7 @@ class SysmoSIMgr2(Card):
 		data, sw = self._scc.update_binary('2fe2', enc_iccid(p['iccid']))
 
 		# select DF_GSM
-		r = self._scc.select_file(['7f20'])
+		r = self._scc.select_path(['7f20'])
 
 		# write EF.IMSI
 		data, sw = self._scc.update_binary('6f07', enc_imsi(p['imsi']))
@@ -809,7 +808,7 @@ class SysmoSIMgr2(Card):
 			data, sw = self._scc.update_binary('6f78', lpad(p['acc'], 4))
 
 		# get size and write EF.HPLMN
-		r = self._scc.select_file(['6f30'])
+		r = self._scc.select_path(['6f30'])
 		size = int(r[-1][4:8], 16)
 		hplmn = enc_plmn(p['mcc'], p['mnc'])
 		self._scc.update_binary('6f30', hplmn + 'ff' * (size-3))
@@ -821,7 +820,7 @@ class SysmoSIMgr2(Card):
 		data, sw = self._scc.update_binary('0001', p['ki'], 3)
 
 		# select DF_TELECOM
-		r = self._scc.select_file(['3f00', '7f10'])
+		r = self._scc.select_path(['3f00', '7f10'])
 
 		# write EF.SMSP
 		if p.get('smsp'):
@@ -850,21 +849,26 @@ class SysmoUSIMSJS1(UsimCard):
 			return None
 		return None
 
-	def program(self, p):
-
+	def verify_adm(self, key):
 		# authenticate as ADM using default key (written on the card..)
-		if not p['pin_adm']:
+		if not key:
 			raise ValueError("Please provide a PIN-ADM as there is no default one")
-		self._scc.verify_chv(0x0A, h2b(p['pin_adm']))
+		(res, sw) = self._scc.verify_chv(0x0A, key)
+		if sw != '9000':
+			raise RuntimeError('Failed to authenticate with ADM key %s'%(key))
+		return sw
+
+	def program(self, p):
+		self.verify_adm(h2b(p['pin_adm']))
 
 		# select MF
-		r = self._scc.select_file(['3f00'])
+		r = self._scc.select_path(['3f00'])
 
 		# write EF.ICCID
 		data, sw = self._scc.update_binary('2fe2', enc_iccid(p['iccid']))
 
 		# select DF_GSM
-		r = self._scc.select_file(['7f20'])
+		r = self._scc.select_path(['7f20'])
 
 		# set Ki in proprietary file
 		data, sw = self._scc.update_binary('00FF', p['ki'])
@@ -917,7 +921,7 @@ class SysmoUSIMSJS1(UsimCard):
 
 		# EF.SMSP
 		if p.get('smsp'):
-			r = self._scc.select_file(['3f00', '7f10'])
+			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6f42', 1, lpad(p['smsp'], 104), force_len=True)
 
 		# EF.MSISDN
@@ -928,7 +932,7 @@ class SysmoUSIMSJS1(UsimCard):
 			msisdn = enc_msisdn(p['msisdn'])
 			data = 'ff' * 20 + msisdn + 'ff' * 2
 
-			r = self._scc.select_file(['3f00', '7f10'])
+			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6F40', 1, data, force_len=True)
 
 
@@ -1102,12 +1106,12 @@ class OpenCellsSim(Card):
 		self._scc.verify_chv(0x0A, h2b(p['pin_adm']))
 
 		# select MF
-		r = self._scc.select_file(['3f00'])
+		r = self._scc.select_path(['3f00'])
 
 		# write EF.ICCID
 		data, sw = self._scc.update_binary('2fe2', enc_iccid(p['iccid']))
 
-		r = self._scc.select_file(['7ff0'])
+		r = self._scc.select_path(['7ff0'])
 
 		# set Ki in proprietary file
 		data, sw = self._scc.update_binary('FF02', p['ki'])
@@ -1116,7 +1120,7 @@ class OpenCellsSim(Card):
 		data, sw = self._scc.update_binary('FF01', p['opc'])
 
 		# select DF_GSM
-		r = self._scc.select_file(['7f20'])
+		r = self._scc.select_path(['7f20'])
 
 		# write EF.IMSI
 		data, sw = self._scc.update_binary('6f07', enc_imsi(p['imsi']))
@@ -1245,11 +1249,17 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 			return None
 		return None
 
-	def program(self, p):
+	def verify_adm(self, key):
 		# authenticate as ADM using default key (written on the card..)
-		if not p['pin_adm']:
+		if not key:
 			raise ValueError("Please provide a PIN-ADM as there is no default one")
-		self._scc.verify_chv(0x0A, h2b(p['pin_adm']))
+		(res, sw) = self._scc.verify_chv(0x0A, key)
+		if sw != '9000':
+			raise RuntimeError('Failed to authenticate with ADM key %s'%(key))
+		return sw
+
+	def program(self, p):
+		self.verify_adm(h2b(p['pin_adm']))
 
 		# This type of card does not allow to reprogram the ICCID.
 		# Reprogramming the ICCID would mess up the card os software
@@ -1259,7 +1269,7 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 			print("Warning: Programming of the ICCID is not implemented for this type of card.")
 
 		# select DF_GSM
-		self._scc.select_file(['7f20'])
+		self._scc.select_path(['7f20'])
 
 		# write EF.IMSI
 		if p.get('imsi'):
@@ -1297,7 +1307,7 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 
 		# EF.SMSP
 		if p.get('smsp'):
-			r = self._scc.select_file(['3f00', '7f10'])
+			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6f42', 1, lpad(p['smsp'], 104), force_len=True)
 
 		# EF.MSISDN
@@ -1308,7 +1318,7 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 			msisdn = enc_msisdn(p['msisdn'])
 			content = 'ff' * 20 + msisdn + 'ff' * 2
 
-			r = self._scc.select_file(['3f00', '7f10'])
+			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6F40', 1, content, force_len=True)
 
 		# EF.ACC
@@ -1322,8 +1332,8 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 
 		# update EF-SIM_AUTH_KEY (and EF-USIM_AUTH_KEY_2G, which is
 		# hard linked to EF-USIM_AUTH_KEY)
-		self._scc.select_file(['3f00'])
-		self._scc.select_file(['a515'])
+		self._scc.select_path(['3f00'])
+		self._scc.select_path(['a515'])
 		if p.get('ki'):
 			self._scc.update_binary('6f20', p['ki'], 1)
 		if p.get('opc'):

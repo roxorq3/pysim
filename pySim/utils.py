@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 """ pySim: various utilities
@@ -23,11 +22,12 @@
 
 
 def h2b(s):
-	#return ''.join([chr((int(x,16)<<4)+int(y,16)) for x,y in zip(s[0::2], s[1::2])])
-	return bytes.fromhex(s)
+	"""convert from a string of hex nibbles to a sequence of bytes"""
+	return bytearray.fromhex(s)
 
-def b2h(s):
-	#return ''.join(['%02x'%ord(x) for x in s])
+def b2h(b):
+	"""convert from a sequence of bytes to a string of hex nibbles"""
+	#return ''.join(['%02x'%(x) for x in b])
 	return s.hex()
 
 def h2i(s):
@@ -41,7 +41,9 @@ def h2s(s):
 						      if int(x + y, 16) != 0xff])
 
 def s2h(s):
-	return b2h(s)
+	b = bytearray()
+	b.extend(map(ord, s))
+	return b2h(b)
 
 # List of bytes to string
 def i2s(s):
@@ -337,7 +339,7 @@ def dec_msisdn(ef_msisdn):
 	msisdn_lhv = ef_msisdn[xlen:]
 
 	# Parse the length (in bytes) of the BCD encoded number
-	bcd_len = ord(msisdn_lhv[0])
+	bcd_len = msisdn_lhv[0]
 	# BCD length = length of dial num (max. 10 bytes) + 1 byte ToN and NPI
 	if bcd_len == 0xff:
 		return None
@@ -345,8 +347,8 @@ def dec_msisdn(ef_msisdn):
 		raise ValueError("Length of MSISDN (%d bytes) is out of range" % bcd_len)
 
 	# Parse ToN / NPI
-	ton = (ord(msisdn_lhv[1]) >> 4) & 0x07
-	npi = ord(msisdn_lhv[1]) & 0x0f
+	ton = (msisdn_lhv[1] >> 4) & 0x07
+	npi = msisdn_lhv[1] & 0x0f
 	bcd_len -= 1
 
 	# No MSISDN?
@@ -574,7 +576,7 @@ def enc_addr_tlv(addr, addr_type='00'):
 
 	return s
 
-def sanitize_pin_adm(opts):
+def sanitize_pin_adm(pin_adm, pin_adm_hex = None):
 	"""
 	The ADM pin can be supplied either in its hexadecimal form or as
 	ascii string. This function checks the supplied opts parameter and
@@ -582,19 +584,17 @@ def sanitize_pin_adm(opts):
 	it was originally supplied by the user
 	"""
 
-	pin_adm = None
-
-	if opts.pin_adm is not None:
-		if len(opts.pin_adm) <= 8:
-			pin_adm = ''.join(['%02x'%(ord(x)) for x in opts.pin_adm])
+	if pin_adm is not None:
+		if len(pin_adm) <= 8:
+			pin_adm = ''.join(['%02x'%(ord(x)) for x in pin_adm])
 			pin_adm = rpad(pin_adm, 16)
 
 		else:
 			raise ValueError("PIN-ADM needs to be <=8 digits (ascii)")
 
-	if opts.pin_adm_hex is not None:
-		if len(opts.pin_adm_hex) == 16:
-			pin_adm = opts.pin_adm_hex
+	if pin_adm_hex is not None:
+		if len(pin_adm_hex) == 16:
+			pin_adm = pin_adm_hex
 			# Ensure that it's hex-encoded
 			try:
 				try_encode = h2b(pin_adm)
@@ -765,8 +765,24 @@ def get_addr_type(addr):
 
 	return None
 
+<<<<<<< HEAD
 def calculate_checksum_xor(bytelist):
 	checksum = 0
 	for b in bytelist:
 		checksum ^= b
 	return checksum
+=======
+def sw_match(sw, pattern):
+	"""Match given SW against given pattern."""
+	# Create a masked version of the returned status word
+	sw_lower = sw.lower()
+	sw_masked = ""
+	for i in range(0, 4):
+		if sw_lower[i] == '?':
+			sw_masked = sw_masked + '?'
+		elif sw_lower[i] == 'x':
+			sw_masked = sw_masked + 'x'
+		else:
+			sw_masked = sw_masked + sw_lower[i]
+	return sw_masked == pattern
+>>>>>>> b2edd1447520c884eff24aad6181da7199dad8d6
