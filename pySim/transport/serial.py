@@ -88,6 +88,8 @@ class SerialSimLink(LinkBase):
         raise NoCardError()
 
     def connect(self, do_pps=True):
+        if not self.sl.is_open:
+            self._sl = SerialBase(device, self._calculate_clk())
         self.reset_card(do_pps)
 
     def send_pps(self):
