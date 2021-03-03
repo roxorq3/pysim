@@ -108,9 +108,9 @@ class VirtualSim(threading.Thread):
         try:
             logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
             response = self.handle_apdu(apdu, expected_len)
-            #modem expects additional instruction byte in response for apdu case 2
+            # modem expects additional instruction byte in response for apdu case 2
             if len(response) > 2:
-                response = bytes(apdu[1]) + response
+                response = bytes([apdu[1]]) + response
             logging.info(f"recieved apdu response: {b2h(response)}")
             return response
         except:
@@ -123,8 +123,7 @@ class VirtualSim(threading.Thread):
         try:
             while self._alive:
                 apdu, le = self._rx_apdu()
-                response = self._handle_apdu_with_wxt(
-                    apdu, le + SerialBase.SW_LEN)
+                response = self._handle_apdu_with_wxt(apdu, le)
                 self._sl.tx_bytes(response)
         # except Exception as e:
         #    logging.info(e)
