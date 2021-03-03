@@ -60,7 +60,7 @@ class PcscSimLink(LinkBase):
 			raise NoCardError()
 
 	def get_atr(self):
-		return self._con.getATR()
+		return bytes(self._con.getATR())
 
 	def disconnect(self):
 		self._con.disconnect()
