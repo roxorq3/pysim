@@ -765,13 +765,12 @@ def get_addr_type(addr):
 
 	return None
 
-<<<<<<< HEAD
 def calculate_checksum_xor(bytelist):
 	checksum = 0
 	for b in bytelist:
 		checksum ^= b
 	return checksum
-=======
+	
 def sw_match(sw, pattern):
 	"""Match given SW against given pattern."""
 	# Create a masked version of the returned status word
@@ -785,4 +784,3 @@ def sw_match(sw, pattern):
 		else:
 			sw_masked = sw_masked + sw_lower[i]
 	return sw_masked == pattern
->>>>>>> b2edd1447520c884eff24aad6181da7199dad8d6
