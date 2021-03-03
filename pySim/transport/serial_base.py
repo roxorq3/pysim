@@ -131,6 +131,13 @@ class SerialBase(object):
         pps.append(calculate_checksum_xor(pps))
         return pps
 
+    def reset_card(self):
+        self._fi = SerialBase.DEFAULT_FI
+        self._di = SerialBase.DEFAULT_DI
+        self._wi = SerialBase.DEFAULT_WI
+        self._set_inter_byte_timeout(0.1)
+        self._set_baudrate(self._calculate_baudrate())
+
     def tx_byte(self, b):
         logging.debug(f"tx_byte: {b2h(b)}")
         self._sl.write(b)

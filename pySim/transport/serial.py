@@ -111,6 +111,7 @@ class SerialSimLink(LinkBase):
             self._sl.close()
 
     def reset_card(self, do_pps=True):
+        self.sl.reset_card()
         rv = self._reset_card()
         if rv == 0:
             raise NoCardError()
