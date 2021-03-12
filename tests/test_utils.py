@@ -1,7 +1,7 @@
-#!/usr/bin/pyton
+#!/usr/bin/env python3
 
 import unittest
-import utils 
+import pySim.utils as utils
 
 class DecTestCase(unittest.TestCase):
 
@@ -28,6 +28,16 @@ class DecTestCase(unittest.TestCase):
 
 	def testDecMNCfromPLMN_unused(self):
 		self.assertEqual(utils.dec_mnc_from_plmn("00f0ff"), 4095)
+
+	def test_enc_plmn(self):
+		with self.subTest("2-digit MCC"):
+			self.assertEqual(utils.enc_plmn("001", "01F"), "00F110")
+			self.assertEqual(utils.enc_plmn("001", "01"), "00F110")
+			self.assertEqual(utils.enc_plmn("295", "10"), "92F501")
+
+		with self.subTest("3-digit MCC"):
+			self.assertEqual(utils.enc_plmn("001", "001"), "001100")
+			self.assertEqual(utils.enc_plmn("302", "361"), "031263")
 
 	def testDecAct_noneSet(self):
 		self.assertEqual(utils.dec_act("0000"), [])
@@ -59,17 +69,16 @@ class DecTestCase(unittest.TestCase):
 
 	def testFormatxPlmn_w_act(self):
 		input_str = "92f501800092f5508000ffffff0000ffffff0000ffffff0000ffffff0000ffffff0000ffffff0000ffffff0000ffffff0000"
-		expected = '''92f5018000 # MCC: 295 MNC:  10 AcT: UTRAN
-92f5508000 # MCC: 295 MNC:   5 AcT: UTRAN
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-ffffff0000 # unused
-'''
+		expected  = "\t92f5018000 # MCC: 295 MNC: 010 AcT: UTRAN\n"
+		expected += "\t92f5508000 # MCC: 295 MNC: 005 AcT: UTRAN\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
+		expected += "\tffffff0000 # unused\n"
 		self.assertEqual(utils.format_xplmn_w_act(input_str), expected)
 
 if __name__ == "__main__":

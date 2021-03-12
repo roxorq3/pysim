@@ -110,8 +110,8 @@ def enc_iccid(iccid):
 def enc_plmn(mcc, mnc):
 	"""Converts integer MCC/MNC into 3 bytes for EF"""
 	if len(mnc) == 2:
-		mnc = "F%s" % mnc
-	return swap_nibbles("%s%s" % (mcc, mnc))
+		mnc += "F" # pad to 3 digits if needed
+	return (mcc[1] + mcc[0]) + (mnc[2] + mcc[2]) + (mnc[1] + mnc[0])
 
 def dec_spn(ef):
 	byte1 = int(ef[0:2])
@@ -141,9 +141,9 @@ def dec_mcc_from_plmn(plmn):
 
 def dec_mnc_from_plmn(plmn):
 	ia = h2i(plmn)
-	digit1 = (ia[1] & 0xF0)	>>4		# 2nd byte, MSB
-	digit2 = ia[2] & 0x0F			# 3rd byte, LSB
-	digit3 = (ia[2] & 0xF0) >> 4	# 3nd byte, MSB
+	digit1 = ia[2] & 0x0F		# 3rd byte, LSB
+	digit2 = (ia[2] & 0xF0) >> 4	# 3rd byte, MSB
+	digit3 = (ia[1] & 0xF0) >> 4	# 2nd byte, MSB
 	if digit3 == 0xF and digit2 == 0xF and digit1 == 0xF:
 		return 0xFFF # 4095
 	return derive_mnc(digit1, digit2, digit3)
@@ -578,6 +578,28 @@ def enc_addr_tlv(addr, addr_type='00'):
 
 	return s
 
+def is_hex(string, minlen=2, maxlen=None) -> bool:
+	"""
+	Check if a string is a valid hexstring
+	"""
+
+	# Filter obviously bad strings
+	if not string:
+		return False
+	if len(string) < minlen or minlen < 2:
+		return False
+	if len(string) % 2:
+		return False
+	if maxlen and len(string) > maxlen:
+		return False
+
+	# Try actual encoding to be sure
+	try:
+		try_encode = h2b(string)
+		return True
+	except:
+		return False
+
 def sanitize_pin_adm(pin_adm, pin_adm_hex = None):
 	"""
 	The ADM pin can be supplied either in its hexadecimal form or as
@@ -721,20 +743,13 @@ def get_addr_type(addr):
 	if not len(addr):
 		return None
 
-	import sys
-	# Handle python3 and python2 - unicode
-	if sys.version_info[0] < 3:
-		addr_str = unicode(addr)
-	else:
-		addr_str = addr
-
 	addr_list = addr.split('.')
 
 	# Check for IPv4/IPv6
 	try:
 		import ipaddress
 		# Throws ValueError if addr is not correct
-		ipa = ipaddress.ip_address(addr_str)
+		ipa = ipaddress.ip_address(addr)
 
 		if ipa.version == 4:
 			return 0x01
