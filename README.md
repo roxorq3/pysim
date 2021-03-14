@@ -37,11 +37,16 @@ pysim requires:
 - pyscard
 - serial
 - pytlv (for specific card types)
+- cmd2 (for pySim-shell.py)
 
 Example for Debian:
 
-	apt-get install python3-pyscard python3-serial python3-pip python3-yaml
+	apt-get install python3-pyscard python3-serial python3-cmd2 python3-pip python3-yaml
 	pip3 install pytlv
+
+Alternatively, everything can be installed using pip:
+
+	pip3 install -r requirements.txt
 
 
 Mailing List
