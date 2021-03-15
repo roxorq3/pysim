@@ -16,4 +16,11 @@ setuptools.setup(
     },
     packages=setuptools.find_packages(),
     python_requires=">=3.6",
+    install_requires=[
+          'pyscard',
+          'pytlv',
+          'cmd2',
+          'pyyaml',
+          'pyserial @ git+https://github.com/mahatma1/pyserial.git@f251884cbcfd5c34ace7d31138d755b67c3db1a3#egg=pyserial', # Forked Pyserial with inter_byte_timeout fix
+    ],
 )
