@@ -125,13 +125,13 @@ class VirtualSim(threading.Thread):
                 apdu, le = self._rx_apdu()
                 response = self._handle_apdu_with_wxt(apdu, le)
                 self._sl.tx_bytes(response)
-        # except Exception as e:
-        #    logging.info(e)
-        finally:
+        except Exception as e:
             if not self._alive:
                 logging.info("thread stopped, leaving apdu loop")
             else:
+                logging.info(e)
                 logging.info("something went wrong -> leaving apdu loop")
+        finally:
             self._alive = False
 
     def run(self):
