@@ -255,7 +255,7 @@ class BluetoothSapSimLink(LinkBase):
     UUID_SIM_ACCESS = '0000112d-0000-1000-8000-00805f9b34fb'
     SAP_MAX_MSG_SIZE = 0xffff
 
-	def __init__(self, bt_mac_addr):
+    def __init__(self, bt_mac_addr):
         self._bt_mac_addr = bt_mac_addr
         # at first try to find the bluetooth device
         if not bluetooth.find_service(address=bt_mac_addr):
@@ -267,46 +267,46 @@ class BluetoothSapSimLink(LinkBase):
             raise ReaderError(
                 f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
 
-	def __del__(self):
-		try:
-			# FIXME: this causes multiple warnings in Python 3.5.3
-			self._con.disconnect()
-		except:
-			pass
-		return
+    def __del__(self):
+        try:
+            # FIXME: this causes multiple warnings in Python 3.5.3
+            self._con.disconnect()
+        except:
+            pass
+        return
 
-	# def wait_for_card(self, timeout=None, newcardonly=False):
-		"""cr = CardRequest(readers=[self._reader], timeout=timeout, newcardonly=newcardonly)
-		try:
-			cr.waitforcard()
-		except CardRequestTimeoutException:
-			raise NoCardError()
-		self.connect()"""
+    # def wait_for_card(self, timeout=None, newcardonly=False):
+        """cr = CardRequest(readers=[self._reader], timeout=timeout, newcardonly=newcardonly)
+        try:
+            cr.waitforcard()
+        except CardRequestTimeoutException:
+            raise NoCardError()
+        self.connect()"""
 
-	def connect(self):
-		try:
-			self._sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+    def connect(self):
+        try:
+            self._sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             self._sock.connect((self._sim_service['host'], self._sim_service['port'))
             data = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", 0xffff])
             self._sock.send(data)
-		except:
-			raise ReaderError("Cannot connect to SIM Access service")
+        except:
+            raise ReaderError("Cannot connect to SIM Access service")
 
-	# def get_atr(self):
+    # def get_atr(self):
     #	return bytes(self._con.getATR())
 
-	def disconnect(self):
-		self._sock.close()
+    def disconnect(self):
+        self._sock.close()
 
-	# def reset_card(self):
-	#	self.disconnect()
-	#	self.connect()
-	#	return 1
+    # def reset_card(self):
+    #	self.disconnect()
+    #	self.connect()
+    #	return 1
 
-	# def send_apdu_raw(self, pdu):
-	#	"""see LinkBase.send_apdu_raw"""
+    # def send_apdu_raw(self, pdu):
+    #	"""see LinkBase.send_apdu_raw"""
     #
-	#	apdu = h2i(pdu)
+    #	apdu = h2i(pdu)
     #
     # 	data, sw1, sw2 = self._con.transmit(apdu)
     #
@@ -330,7 +330,7 @@ class BluetoothSapSimLink(LinkBase):
             '!BBH',
             msg_id,
             param_cnt,
-    	    0
+            0
         )
 
         allowed_params = (x[0] for x in msg_params)
@@ -383,7 +383,7 @@ class BluetoothSapSimLink(LinkBase):
             '!BBHs',
             param_id,
             0, #reserved
-    	    param_len,
+            param_len,
             param_value
         )
         param_bytes = pad_bytes(param_bytes, 4)
