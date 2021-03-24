@@ -262,8 +262,8 @@ class BluetoothSapSimLink(LinkBase):
         if not bluetooth.find_service(address=bt_mac_addr):
             raise ReaderError(f"Cannot find bluetooth device [{bt_mac_addr}]")
         # then check for rSAP support
-        self._sim_service = bluetooth.find_service(
-            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr)
+        self._sim_service = next(bluetooth.find_service(
+            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr), None)
         if not self._sim_service:
             raise ReaderError(
                 f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
