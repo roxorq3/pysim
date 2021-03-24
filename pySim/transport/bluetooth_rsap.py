@@ -30,89 +30,89 @@ from pySim.utils import h2i, i2h, rpad
 # thx to osmocom/softsim
 # SAP table 5.16
 SAP_CONNECTION_STATUS = {
-    0x00 : "OK, Server can fulfill requirements",
-    0x01 : "Error, Server unable to establish connection",
-    0x02 : "Error, Server does not support maximum message size",
-    0x03 : "Error, maximum message size by Client is too small",
-    0x04 : "OK, ongoing call"
+    0x00: "OK, Server can fulfill requirements",
+    0x01: "Error, Server unable to establish connection",
+    0x02: "Error, Server does not support maximum message size",
+    0x03: "Error, maximum message size by Client is too small",
+    0x04: "OK, ongoing call"
 }
 # SAP table 5.18
 SAP_RESULT_CODE = {
-    0x00 : "OK, request processed correctly",
-    0x01 : "Error, no reason defined",
-    0x02 : "Error, card not accessible",
-    0x03 : "Error, card (already) powered off",
-    0x04 : "Error, card removed",
-    0x05 : "Error, card already powered on",
-    0x06 : "Error, data not available",
-    0x07 : "Error, not supported"
+    0x00: "OK, request processed correctly",
+    0x01: "Error, no reason defined",
+    0x02: "Error, card not accessible",
+    0x03: "Error, card (already) powered off",
+    0x04: "Error, card removed",
+    0x05: "Error, card already powered on",
+    0x06: "Error, data not available",
+    0x07: "Error, not supported"
 }
 # SAP table 5.19
 SAP_STATUS_CHANGE = {
-    0x00 : "Unknown Error",
-    0x01 : "Card reset",
-    0x02 : "Card not accessible",
-    0x03 : "Card removed",
-    0x04 : "Card inserted",
-    0x05 : "Card recovered"
+    0x00: "Unknown Error",
+    0x01: "Card reset",
+    0x02: "Card not accessible",
+    0x03: "Card removed",
+    0x04: "Card inserted",
+    0x05: "Card recovered"
 }
 
 # SAP table 5.15
 SAP_PARAMETERS = [
     {
-        'name' : "MaxMsgSize",
-        'length' : 2,
-        'id' : 0x00
+        'name': "MaxMsgSize",
+        'length': 2,
+        'id': 0x00
     },
     {
-        'name' : "ConnectionStatus",
-        'length' : 1,
-        'id' : 0x01
+        'name': "ConnectionStatus",
+        'length': 1,
+        'id': 0x01
     },
     {
-        'name' : "ResultCode",
-        'length' : 1,
-        'id' : 0x02
+        'name': "ResultCode",
+        'length': 1,
+        'id': 0x02
     },
     {
-        'name' : "DisconnectionType",
-        'length' : 1,
-        'id' : 0x03
+        'name': "DisconnectionType",
+        'length': 1,
+        'id': 0x03
     },
     {
-        'name' : "CommandAPDU",
-        'length' : None,
-        'id' : 0x04
+        'name': "CommandAPDU",
+        'length': None,
+        'id': 0x04
     },
     {
-        'name' : "ResponseAPDU",
-        'length' : None,
-        'id' : 0x05
+        'name': "ResponseAPDU",
+        'length': None,
+        'id': 0x05
     },
     {
-        'name' : "ATR",
-        'length' : None,
-        'id' : 0x06
+        'name': "ATR",
+        'length': None,
+        'id': 0x06
     },
     {
-        'name' : "CardReaderdStatus",
-        'length' : 1,
-        'id' : 0x07
+        'name': "CardReaderdStatus",
+        'length': 1,
+        'id': 0x07
     },
     {
-        'name' : "StatusChange",
-        'length' : 1,
-        'id' : 0x08
+        'name': "StatusChange",
+        'length': 1,
+        'id': 0x08
     },
     {
-        'name' : "TransportProtocol",
-        'length' : 1,
-        'id' : 0x09
+        'name': "TransportProtocol",
+        'length': 1,
+        'id': 0x09
     },
     {
-        'name' : "CommandAPDU7816",
-        'length' : 2,
-        'id' : 0x10
+        'name': "CommandAPDU7816",
+        'length': 2,
+        'id': 0x10
     }
 ]
 
@@ -120,138 +120,139 @@ SAP_PARAMETERS = [
 # SAP table 5.1
 SAP_MESSAGES = [
     {
-      'name' : 'CONNECT_REQ',
-      'client_to_server' : true,
-      'id' : 0x00,
-      'parameters' : [(0x00,true)]
+      'name': 'CONNECT_REQ',
+      'client_to_server': true,
+      'id': 0x00,
+      'parameters': [(0x00, true)]
     },
     {
-      'name' : 'CONNECT_RESP',
-      'client_to_server' : false,
-      'id' : 0x01,
-      'parameters' : [(0x01,true),(0x00,false)]
+      'name': 'CONNECT_RESP',
+      'client_to_server': false,
+      'id': 0x01,
+      'parameters': [(0x01, true), (0x00, false)]
     },
     {
-      'name' : 'DISCONNECT_REQ',
-      'client_to_server' : true,
-      'id' : 0x02,
-      'parameters' : []
+      'name': 'DISCONNECT_REQ',
+      'client_to_server': true,
+      'id': 0x02,
+      'parameters': []
     },
     {
-      'name' : 'DISCONNECT_RESP',
-      'client_to_server' : false,
-      'id' : 0x03,
-      'parameters' : []
+      'name': 'DISCONNECT_RESP',
+      'client_to_server': false,
+      'id': 0x03,
+      'parameters': []
     },
     {
-      'name' : 'DISCONNECT_IND',
-      'client_to_server' : false,
-      'id' : 0x04,
-      'parameters' : [(0x03,true)]
+      'name': 'DISCONNECT_IND',
+      'client_to_server': false,
+      'id': 0x04,
+      'parameters': [(0x03, true)]
     },
     {
-      'name' : 'TRANSFER_APDU_REQ',
-      'client_to_server' : true,
-      'id' : 0x05,
-      'parameters' : [(0x04,false),(0x10,false)]
+      'name': 'TRANSFER_APDU_REQ',
+      'client_to_server': true,
+      'id': 0x05,
+      'parameters': [(0x04, false), (0x10, false)]
     },
     {
-      'name' : 'TRANSFER_APDU_RESP',
-      'client_to_server' : false,
-      'id' : 0x06,
-      'parameters' : [(0x02,true),(0x05,false)]
+      'name': 'TRANSFER_APDU_RESP',
+      'client_to_server': false,
+      'id': 0x06,
+      'parameters': [(0x02, true), (0x05, false)]
     },
     {
-      'name' : 'TRANSFER_ATR_REQ',
-      'client_to_server' : true,
-      'id' : 0x07,
-      'parameters' : []
+      'name': 'TRANSFER_ATR_REQ',
+      'client_to_server': true,
+      'id': 0x07,
+      'parameters': []
     },
     {
-      'name' : 'TRANSFER_ATR_RESP',
-      'client_to_server' : false,
-      'id' : 0x08,
-      'parameters' : [(0x02,true),(0x06,false)]
+      'name': 'TRANSFER_ATR_RESP',
+      'client_to_server': false,
+      'id': 0x08,
+      'parameters': [(0x02, true), (0x06, false)]
     },
     {
-      'name' : 'POWER_SIM_OFF_REQ',
-      'client_to_server' : true,
-      'id' : 0x09,
-      'parameters' : []
+      'name': 'POWER_SIM_OFF_REQ',
+      'client_to_server': true,
+      'id': 0x09,
+      'parameters': []
     },
     {
-      'name' : 'POWER_SIM_OFF_RESP',
-      'client_to_server' : false,
-      'id' : 0x0A,
-      'parameters' : [(0x02,true)]
+      'name': 'POWER_SIM_OFF_RESP',
+      'client_to_server': false,
+      'id': 0x0A,
+      'parameters': [(0x02, true)]
     },
     {
-      'name' : 'POWER_SIM_ON_REQ',
-      'client_to_server' : true,
-      'id' : 0x0B,
-      'parameters' : []
+      'name': 'POWER_SIM_ON_REQ',
+      'client_to_server': true,
+      'id': 0x0B,
+      'parameters': []
     },
     {
-      'name' : 'POWER_SIM_ON_RESP',
-      'client_to_server' : false,
-      'id' : 0x0C,
-      'parameters' : [(0x02,true)]
+      'name': 'POWER_SIM_ON_RESP',
+      'client_to_server': false,
+      'id': 0x0C,
+      'parameters': [(0x02, true)]
     },
     {
-      'name' : 'RESET_SIM_REQ',
-      'client_to_server' : true,
-      'id' : 0x0D,
-      'parameters' : []
+      'name': 'RESET_SIM_REQ',
+      'client_to_server': true,
+      'id': 0x0D,
+      'parameters': []
     },
     {
-      'name' : 'RESET_SIM_RESP',
-      'client_to_server' : false,
-      'id' : 0x0E,
-      'parameters' : [(0x02,true)]
+      'name': 'RESET_SIM_RESP',
+      'client_to_server': false,
+      'id': 0x0E,
+      'parameters': [(0x02, true)]
     },
     {
-      'name' : 'TRANSFER_CARD_READER_STATUS_REQ',
-      'client_to_server' : true,
-      'id' : 0x0F,
-      'parameters' : []
+      'name': 'TRANSFER_CARD_READER_STATUS_REQ',
+      'client_to_server': true,
+      'id': 0x0F,
+      'parameters': []
     },
     {
-      'name' : 'TRANSFER_CARD_READER_STATUS_RESP',
-      'client_to_server' : false,
-      'id' : 0x10,
-      'parameters' : [(0x02,true),(0x07,false)]
+      'name': 'TRANSFER_CARD_READER_STATUS_RESP',
+      'client_to_server': false,
+      'id': 0x10,
+      'parameters': [(0x02, true), (0x07, false)]
     },
     {
-      'name' : 'STATUS_IND',
-      'client_to_server' : false,
-      'id' : 0x11,
-      'parameters' : [(0x08, true)]
+      'name': 'STATUS_IND',
+      'client_to_server': false,
+      'id': 0x11,
+      'parameters': [(0x08, true)]
     },
-    
+
     {
-      'name' : 'ERROR_RESP',
-      'client_to_server' : false,
-      'id' : 0x12,
-      'parameters' : []
-    },
-    {
-      'name' : 'SET_TRANSPORT_PROTOCOL_REQ',
-      'client_to_server' : true,
-      'id' : 0x13,
-      'parameters' : [(0x09, true)]
+      'name': 'ERROR_RESP',
+      'client_to_server': false,
+      'id': 0x12,
+      'parameters': []
     },
     {
-      'name' : 'SET_TRANSPORT_PROTOCOL_RESP',
-      'client_to_server' : false,
-      'id' : 0x14,
-      'parameters' : [(0x02, true)]
+      'name': 'SET_TRANSPORT_PROTOCOL_REQ',
+      'client_to_server': true,
+      'id': 0x13,
+      'parameters': [(0x09, true)]
+    },
+    {
+      'name': 'SET_TRANSPORT_PROTOCOL_RESP',
+      'client_to_server': false,
+      'id': 0x14,
+      'parameters': [(0x02, true)]
     },
 
 ]
 
 
 class BluetoothSapSimLink(LinkBase):
-    UUID_SIM_ACCESS = '0000112d-0000-1000-8000-00805f9b34fb'   # UUID for SIM Access Service
+    # UUID for SIM Access Service
+    UUID_SIM_ACCESS = '0000112d-0000-1000-8000-00805f9b34fb'
     SAP_MAX_MSG_SIZE = 0xffff
 
 	def __init__(self, bt_mac_addr):
@@ -260,9 +261,11 @@ class BluetoothSapSimLink(LinkBase):
         if not bluetooth.find_service(address=bt_mac_addr):
             raise ReaderError(f"Cannot find bluetooth device [{bt_mac_addr}]")
         # then check for rSAP support
-        self._sim_service = bluetooth.find_service(uuid=UUID_SIM_ACCESS, address=bt_mac_addr)
+        self._sim_service = bluetooth.find_service(
+            uuid=UUID_SIM_ACCESS, address=bt_mac_addr)
         if not self._sim_service:
-            raise ReaderError(f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
+            raise ReaderError(
+                f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
 
 	def __del__(self):
 		try:
@@ -272,7 +275,7 @@ class BluetoothSapSimLink(LinkBase):
 			pass
 		return
 
-	#def wait_for_card(self, timeout=None, newcardonly=False):
+	# def wait_for_card(self, timeout=None, newcardonly=False):
 		"""cr = CardRequest(readers=[self._reader], timeout=timeout, newcardonly=newcardonly)
 		try:
 			cr.waitforcard()
@@ -289,18 +292,18 @@ class BluetoothSapSimLink(LinkBase):
 		except:
 			raise ReaderError("Cannot connect to SIM Access service")
 
-	#def get_atr(self):
+	# def get_atr(self):
     #	return bytes(self._con.getATR())
 
 	def disconnect(self):
 		self._sock.close()
 
-	#def reset_card(self):
+	# def reset_card(self):
 	#	self.disconnect()
 	#	self.connect()
 	#	return 1
 
-	#def send_apdu_raw(self, pdu):
+	# def send_apdu_raw(self, pdu):
 	#	"""see LinkBase.send_apdu_raw"""
     #
 	#	apdu = h2i(pdu)
