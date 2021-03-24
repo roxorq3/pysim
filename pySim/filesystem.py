@@ -31,7 +31,7 @@ import cmd2
 from cmd2 import CommandSet, with_default_category, with_argparser
 import argparse
 
-from pySim.utils import sw_match, h2b, b2h
+from pySim.utils import sw_match, h2b, b2h, is_hex
 from pySim.exceptions import *
 
 class CardFile(object):
@@ -54,6 +54,10 @@ class CardFile(object):
         if self.parent and self.parent != self and self.fid:
             self.parent.add_file(self)
         self.shell_commands = []
+
+	# Note: the basic properties (fid, name, ect.) are verified when
+	# the file is attached to a parent file. See method add_file() in
+	# class Card DF
 
     def __str__(self):
         if self.name:
@@ -93,7 +97,7 @@ class CardFile(object):
             sels.update({alias: self})
         if self.fid and (flags == [] or 'FIDS' in flags):
             sels.update({self.fid: self})
-        if self.name and (flags == [] or 'NAMES' in flags):
+        if self.name and (flags == [] or 'FNAMES' in flags):
             sels.update({self.name: self})
         return sels
 
@@ -111,8 +115,7 @@ class CardFile(object):
             mf = self.get_mf()
             if mf:
                 sels.update(mf._get_self_selectables(flags = flags))
-                if flags == [] or 'APPS' in flags:
-                    sels.update(mf.get_app_selectables(flags))
+                sels.update(mf.get_app_selectables(flags = flags))
         return sels
 
     def get_selectable_names(self, flags = []):
@@ -141,10 +144,12 @@ class CardDF(CardFile):
         """Add a child (DF/EF) to this DF"""
         if not isinstance(child, CardFile):
             raise TypeError("Expected a File instance")
+        if not is_hex(child.fid, minlen = 4, maxlen = 4):
+            raise ValueError("File name %s is not a valid fid" % (child.fid))
         if child.name in CardFile.RESERVED_NAMES:
             raise ValueError("File name %s is a reserved name" % (child.name))
         if child.fid in CardFile.RESERVED_FIDS:
-            raise ValueError("File fid %s is a reserved name" % (child.fid))
+            raise ValueError("File fid %s is a reserved fid" % (child.fid))
         if child.fid in self.children:
             if ignore_existing:
                 return
@@ -169,7 +174,7 @@ class CardDF(CardFile):
         sels = super().get_selectables(flags)
         if flags == [] or 'FIDS' in flags:
                 sels.update({x.fid: x for x in self.children.values() if x.fid})
-        if flags == [] or 'NAMES' in flags:
+        if flags == [] or 'FNAMES' in flags:
                 sels.update({x.name: x for x in self.children.values() if x.name})
         return sels
 
@@ -226,16 +231,15 @@ class CardMF(CardDF):
     def get_selectables(self, flags = []):
         """Get list of completions (DF/EF/ADF names) from current DF"""
         sels = super().get_selectables(flags)
-        if flags == [] or 'APPS' in flags:
-                sels.update(self.get_app_selectables(flags))
+        sels.update(self.get_app_selectables(flags))
         return sels
 
     def get_app_selectables(self, flags = []):
         """Get applications by AID + name"""
         sels = {}
-        if flags == [] or 'FIDS' in flags:
+        if flags == [] or 'AIDS' in flags:
                 sels.update({x.aid: x for x in self.applications.values()})
-        if flags == [] or 'NAMES' in flags:
+        if flags == [] or 'ANAMES' in flags:
                 sels.update({x.name: x for x in self.applications.values() if x.name})
         return sels
 
@@ -378,11 +382,18 @@ class LinFixedEF(CardEF):
 
         read_rec_parser = argparse.ArgumentParser()
         read_rec_parser.add_argument('record_nr', type=int, help='Number of record to be read')
+        read_rec_parser.add_argument('--count', type=int, default=1, help='Number of records to be read, beginning at record_nr')
         @cmd2.with_argparser(read_rec_parser)
         def do_read_record(self, opts):
-            """Read a record from a record-oriented EF"""
-            (data, sw) = self._cmd.rs.read_record(opts.record_nr)
-            self._cmd.poutput(data)
+            """Read one or multiple records from a record-oriented EF"""
+            for r in range(opts.count):
+                recnr = opts.record_nr + r
+                (data, sw) = self._cmd.rs.read_record(recnr)
+                if (len(data) > 0):
+                   recstr = str(data)
+                else:
+                   recstr = "(empty)"
+                self._cmd.poutput("%03d %s" % (recnr, recstr))
 
         read_rec_dec_parser = argparse.ArgumentParser()
         read_rec_dec_parser.add_argument('record_nr', type=int, help='Number of record to be read')
@@ -708,21 +719,3 @@ class CardProfile(object):
         """Interpret a given status word within the profile.  Returns tuple of
            two strings"""
         return interpret_sw(self.sw, sw)
-
-
-######################################################################
-
-if __name__ == '__main__':
-    mf = CardMF()
-
-    adf_usim = ADF('a0000000871002', name='ADF_USIM')
-    mf.add_application(adf_usim)
-    df_pb = CardDF('5f3a', name='DF.PHONEBOOK')
-    adf_usim.add_file(df_pb)
-    adf_usim.add_file(TransparentEF('6f05', name='EF.LI', size={2,16}))
-    adf_usim.add_file(TransparentEF('6f07', name='EF.IMSI', size={9,9}))
-
-    rss = RuntimeState(mf, None)
-
-    interp = code.InteractiveConsole(locals={'mf':mf, 'rss':rss})
-    interp.interact()
