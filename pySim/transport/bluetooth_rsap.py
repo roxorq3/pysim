@@ -20,11 +20,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import struct
 import bluetooth
 
 from pySim.exceptions import ReaderError, NoCardError, ProtocolError
 from pySim.transport import LinkBase
-from pySim.utils import h2i, i2h, rpad
+from pySim.utils import b2h, h2b, rpad
 
 
 # thx to osmocom/softsim
@@ -121,130 +122,130 @@ SAP_PARAMETERS = [
 SAP_MESSAGES = [
     {
       'name': 'CONNECT_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x00,
-      'parameters': [(0x00, true)]
+      'parameters': [(0x00, True)]
     },
     {
       'name': 'CONNECT_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x01,
-      'parameters': [(0x01, true), (0x00, false)]
+      'parameters': [(0x01, True), (0x00, False)]
     },
     {
       'name': 'DISCONNECT_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x02,
       'parameters': []
     },
     {
       'name': 'DISCONNECT_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x03,
       'parameters': []
     },
     {
       'name': 'DISCONNECT_IND',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x04,
-      'parameters': [(0x03, true)]
+      'parameters': [(0x03, True)]
     },
     {
       'name': 'TRANSFER_APDU_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x05,
-      'parameters': [(0x04, false), (0x10, false)]
+      'parameters': [(0x04, False), (0x10, False)]
     },
     {
       'name': 'TRANSFER_APDU_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x06,
-      'parameters': [(0x02, true), (0x05, false)]
+      'parameters': [(0x02, True), (0x05, False)]
     },
     {
       'name': 'TRANSFER_ATR_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x07,
       'parameters': []
     },
     {
       'name': 'TRANSFER_ATR_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x08,
-      'parameters': [(0x02, true), (0x06, false)]
+      'parameters': [(0x02, True), (0x06, False)]
     },
     {
       'name': 'POWER_SIM_OFF_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x09,
       'parameters': []
     },
     {
       'name': 'POWER_SIM_OFF_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x0A,
-      'parameters': [(0x02, true)]
+      'parameters': [(0x02, True)]
     },
     {
       'name': 'POWER_SIM_ON_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x0B,
       'parameters': []
     },
     {
       'name': 'POWER_SIM_ON_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x0C,
-      'parameters': [(0x02, true)]
+      'parameters': [(0x02, True)]
     },
     {
       'name': 'RESET_SIM_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x0D,
       'parameters': []
     },
     {
       'name': 'RESET_SIM_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x0E,
-      'parameters': [(0x02, true)]
+      'parameters': [(0x02, True)]
     },
     {
       'name': 'TRANSFER_CARD_READER_STATUS_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x0F,
       'parameters': []
     },
     {
       'name': 'TRANSFER_CARD_READER_STATUS_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x10,
-      'parameters': [(0x02, true), (0x07, false)]
+      'parameters': [(0x02, True), (0x07, False)]
     },
     {
       'name': 'STATUS_IND',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x11,
-      'parameters': [(0x08, true)]
+      'parameters': [(0x08, True)]
     },
 
     {
       'name': 'ERROR_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x12,
       'parameters': []
     },
     {
       'name': 'SET_TRANSPORT_PROTOCOL_REQ',
-      'client_to_server': true,
+      'client_to_server': True,
       'id': 0x13,
-      'parameters': [(0x09, true)]
+      'parameters': [(0x09, True)]
     },
     {
       'name': 'SET_TRANSPORT_PROTOCOL_RESP',
-      'client_to_server': false,
+      'client_to_server': False,
       'id': 0x14,
-      'parameters': [(0x02, true)]
+      'parameters': [(0x02, True)]
     },
 
 ]
@@ -262,18 +263,14 @@ class BluetoothSapSimLink(LinkBase):
             raise ReaderError(f"Cannot find bluetooth device [{bt_mac_addr}]")
         # then check for rSAP support
         self._sim_service = bluetooth.find_service(
-            uuid=UUID_SIM_ACCESS, address=bt_mac_addr)
+            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr)
         if not self._sim_service:
             raise ReaderError(
                 f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
 
     def __del__(self):
-        try:
-            # FIXME: this causes multiple warnings in Python 3.5.3
-            self._con.disconnect()
-        except:
-            pass
-        return
+        #TODO: do something here
+        pass
 
     # def wait_for_card(self, timeout=None, newcardonly=False):
         """cr = CardRequest(readers=[self._reader], timeout=timeout, newcardonly=newcardonly)
@@ -286,9 +283,13 @@ class BluetoothSapSimLink(LinkBase):
     def connect(self):
         try:
             self._sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-            self._sock.connect((self._sim_service['host'], self._sim_service['port'))
-            data = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", 0xffff])
-            self._sock.send(data)
+            self._sock.connect((self._sim_service['host'], self._sim_service['port']))
+            connect_req = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", 0xffff)])
+            
+            print(f"send : {b2h(connect_req)}")
+            self._sock.send(connect_req)
+            connect_resp = self._sock.recv(1024)
+            print(f"recv : {b2h(connect_resp)}")
         except:
             raise ReaderError("Cannot connect to SIM Access service")
 
@@ -315,14 +316,14 @@ class BluetoothSapSimLink(LinkBase):
     #	# Return value
     #	return i2h(data), i2h(sw)
     
-    def craft_sap_message(self, msg_name, param_list=[])
+    def craft_sap_message(self, msg_name, param_list=[]):
         msg_info = next((x for x in SAP_MESSAGES if x.get('name') == msg_name), None)
         if not msg_info:
             raise ProtocolError(f"Unknown SAP message name ({msg_name})")
         
         msg_id = msg_info.get('id')
-        msg_direction = msg_info.get('client_to_server')
         msg_params = msg_info.get('parameters')
+        #msg_direction = msg_info.get('client_to_server')
 
         param_cnt = len(param_list)
 
@@ -365,13 +366,13 @@ class BluetoothSapSimLink(LinkBase):
 
     def craft_sap_parameter(self, param_name, param_value):
         param_info = next((x for x in SAP_PARAMETERS if x.get('name') == param_name), None)
-        param_id = msg_info.get('id')
-        param_len = msg_info.get('length')
+        param_id = param_info.get('id')
+        param_len = param_info.get('length')
 
         if isinstance(param_value, str):
-            param_value = h2b(value)
+            param_value = h2b(param_value)
 
-        if isinstance(param_value, int)
+        if isinstance(param_value, int):
             param_value = (param_value).to_bytes(param_len, byteorder='big')    #TODO: when param len is not set we have a problem :X
 
         if not param_len:
@@ -386,5 +387,5 @@ class BluetoothSapSimLink(LinkBase):
             param_len,
             param_value
         )
-        param_bytes = pad_bytes(param_bytes, 4)
+        param_bytes = self.pad_bytes(param_bytes, 4)
         return param_bytes
