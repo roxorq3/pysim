@@ -262,8 +262,8 @@ class BluetoothSapSimLink(LinkBase):
         if not bluetooth.find_service(address=bt_mac_addr):
             raise ReaderError(f"Cannot find bluetooth device [{bt_mac_addr}]")
         # then check for rSAP support
-        self._sim_service = next(bluetooth.find_service(
-            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr), None)
+        self._sim_service = next(iter(bluetooth.find_service(
+            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr)), None)
         if not self._sim_service:
             raise ReaderError(
                 f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
@@ -289,7 +289,11 @@ class BluetoothSapSimLink(LinkBase):
             print(f"send : {b2h(connect_req)}")
             self._sock.send(connect_req)
             connect_resp = self._sock.recv(1024)
-            print(f"recv : {b2h(connect_resp)}")
+            print(f"recv : {self.parse_sap_message(connect_resp)} ({b2h(connect_resp)})")
+
+            
+            connect_resp = self._sock.recv(1024)
+            print(f"recv : {self.parse_sap_message(connect_resp)} ({b2h(connect_resp)})")
         except:
             raise ReaderError("Cannot connect to SIM Access service")
 
@@ -344,7 +348,7 @@ class BluetoothSapSimLink(LinkBase):
             param_value = p[1]
 
             param_id = next((x.get('id') for x in SAP_PARAMETERS if x.get('name') == param_name), None)
-            if not param_id:
+            if param_id is None:
                 raise ProtocolError(f"Unknown SAP param name ({param_name})")
             if param_id not in allowed_params:
                 raise ProtocolError(f"Parameter {param_name} not allowed in message {msg_name}")
@@ -358,11 +362,16 @@ class BluetoothSapSimLink(LinkBase):
 
         return msg_bytes
 
-    def pad_bytes(self, b, d):
-        extra = len(b) % d
-        if extra > 0:
-            b = b + bytearray(d - extra)
-        return b
+
+    def calc_padding_len(self, length, blocksize = 4):
+      extra = length % blocksize
+      if extra > 0:
+            return blocksize-extra
+      return 0
+
+    def pad_bytes(self, b, blocksize = 4):
+        padding_len = self.calc_padding_len(len(b), blocksize)
+        return b + bytearray(padding_len)
 
     def craft_sap_parameter(self, param_name, param_value):
         param_info = next((x for x in SAP_PARAMETERS if x.get('name') == param_name), None)
@@ -375,17 +384,64 @@ class BluetoothSapSimLink(LinkBase):
         if isinstance(param_value, int):
             param_value = (param_value).to_bytes(param_len, byteorder='big')    #TODO: when param len is not set we have a problem :X
 
-        if not param_len:
+        if param_len is None:
             param_len = len(param_value)    #just assume param length from bytearray
         elif param_len != len(param_value):
             raise ProtocolError(f"Invalid param length (epected {param_len} but got {len(param_value)} bytes)")
 
         param_bytes = struct.pack(
-            '!BBHs',
+            f'!BBH{param_len}s',
             param_id,
             0, #reserved
             param_len,
             param_value
         )
-        param_bytes = self.pad_bytes(param_bytes, 4)
+        param_bytes = self.pad_bytes(param_bytes)
         return param_bytes
+
+    def parse_sap_message(self, msg_bytes):
+      header_struct = struct.Struct('!BBH')
+      msg_id, param_cnt, reserved = header_struct.unpack_from(msg_bytes)
+      msg_bytes = msg_bytes[header_struct.size:]
+
+      msg_info = next((x for x in SAP_MESSAGES if x.get('id') == msg_id), None)
+      
+      msg_name = msg_info.get('name')
+      msg_params = msg_info.get('parameters')
+      #msg_direction = msg_info.get('client_to_server')
+
+      # TODO: check if params allowed etc
+      #allowed_params = (x[0] for x in msg_params)
+      #mandatory_params = (x[0] for x in msg_params if x[1] == True)
+
+      param_list=[]
+
+      for x in range(param_cnt):
+        param_name, param_value, total_len = self.parse_sap_parameter(msg_bytes)
+        param_list.append((param_name, param_value))
+        msg_bytes = msg_bytes[total_len:]
+
+      return msg_name, param_list
+    
+    def parse_sap_parameter(self, param_bytes):
+      header_struct = struct.Struct('!BBH')
+      total_len = header_struct.size
+      param_id, reserved, param_len = header_struct.unpack_from(param_bytes)
+      padding_len = self.calc_padding_len(param_len)
+      paramval_struct = struct.Struct(f'!{param_len}s{padding_len}s')
+      param_value, padding = paramval_struct.unpack_from(param_bytes[total_len:])
+      total_len += paramval_struct.size
+
+      param_info = next((x for x in SAP_PARAMETERS if x.get('id') == param_id), None)
+      param_name = param_info.get('name') # TODO: check if param found, length plausible, ...
+      #param_len = param_info.get('length')
+      return param_name, param_value, total_len
+
+      
+
+
+if __name__ == "__main__":
+    # execute only if run as a script
+    link = BluetoothSapSimLink("80:5A:04:0E:90:F6") # nexus 5
+    #link = BluetoothSapSimLink("40:A1:08:91:E2:6A")
+    link.connect()
