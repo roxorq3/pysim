@@ -302,8 +302,7 @@ class BluetoothSapSimLink(LinkBase):
 
     def reset_card(self):
       if self._connected:
-        reset_sim_req = self.craft_sap_message("RESET_SIM_REQ")
-        self._sock.send(reset_sim_req)
+        self.send_sap_message("RESET_SIM_REQ")
         msg_name, param_list = self._recv_sap_response('RESET_SIM_RESP')
         connection_status = next((x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
         if connection_status == 0x00:
@@ -313,6 +312,11 @@ class BluetoothSapSimLink(LinkBase):
         self.disconnect()
         self.connect()
       return 1
+
+    def send_sap_message(self, msg_name, param_list=[]):
+      #maby check for idle state before sending?
+      message = self.craft_sap_message(msg_name, param_list)
+      return self._sock.send(message)
 
     def _recv_sap_message(self):
       resp = self._sock.recv(self._max_msg_size)
@@ -328,8 +332,7 @@ class BluetoothSapSimLink(LinkBase):
 
 
     def establish_sim_connection(self, retries=5):
-      connect_req = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", self._max_msg_size)])
-      self._sock.send(connect_req)
+      self.send_sap_message("CONNECT_REQ", [("MaxMsgSize", self._max_msg_size)])
       msg_name, param_list = self._recv_sap_response('CONNECT_RESP')
 
       connection_status = next((x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
@@ -345,8 +348,7 @@ class BluetoothSapSimLink(LinkBase):
         return self.establish_sim_connection(retries-1)
 
     def retrieve_atr(self):
-      atr_req = self.craft_sap_message("TRANSFER_ATR_REQ")
-      self._sock.send(atr_req)
+      self.send_sap_message("TRANSFER_ATR_REQ")
       msg_name, param_list = self._recv_sap_response('TRANSFER_ATR_RESP')
       result_code = next((x[1] for x in param_list if x[0] == 'ResultCode'), 0x01)
       if result_code == 0x00:        
@@ -512,7 +514,7 @@ class BluetoothSapSimLink(LinkBase):
     def send_apdu_raw(self, pdu):
       if isinstance(pdu, str):
         pdu = h2b(pdu)
-      apdu_req = self.craft_sap_message("TRANSFER_APDU_REQ", [("CommandAPDU", pdu)])
+      self.send_sap_message("TRANSFER_APDU_REQ", [("CommandAPDU", pdu)])
 
       msg_name, param_list = self._recv_sap_response('TRANSFER_APDU_RESP')
       result_code = next((x[1] for x in param_list if x[0] == 'ResultCode'), 0x01)
@@ -532,4 +534,6 @@ if __name__ == "__main__":
   #link = BluetoothSapSimLink("94:17:00:71:45:A1") # poco
   #link = BluetoothSapSimLink("80:5A:04:0E:90:F6") # nexus 5
   # link = BluetoothSapSimLink("40:A1:08:91:E2:6A") #tablet 
+  link = BluetoothSapSimLink("80:5A:04:0E:90:F6")
   link.connect()
+  link.send_apdu_raw("00a40004023f00")
