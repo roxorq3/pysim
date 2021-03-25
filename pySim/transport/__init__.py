@@ -3,6 +3,7 @@
 """ pySim: PCSC reader transport link base
 """
 
+import logging
 from pySim.exceptions import *
 from pySim.utils import sw_match
 
@@ -72,6 +73,7 @@ class LinkBase(object):
 			return data, sw
 		except Exception as e1:
 			if retry_attempts > 0:
+				logging.info(f"eception occured when sending apdu {pdu}, retry...")
 				return self.send_apdu_failsafe(pdu, retry_attempts-1)
 			raise
 

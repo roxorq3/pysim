@@ -297,8 +297,10 @@ class BluetoothSapSimLink(LinkBase):
     #	return bytes(self._con.getATR())
 
     def disconnect(self):
-        self._sock.close()
-        self.connected = False
+      if self.connected:
+        self.send_sap_message("DISCONNECT_REQ")
+      self._sock.close()
+      self.connected = False
 
     def reset_card(self):
       if self._connected:
@@ -357,6 +359,7 @@ class BluetoothSapSimLink(LinkBase):
         logging.info(f"Recieved ATR from server: {b2h(atr)}")
 
     def handle_sap_response_generic(self, msg_name, param_list):
+      #print stuff
       logging.info(f"Recieved sap message from server: {(msg_name, param_list)}")
       for param in param_list:
         param_name, param_value = param
@@ -369,7 +372,13 @@ class BluetoothSapSimLink(LinkBase):
         elif param_name == 'ResultCode':
           response_code = SAP_RESULT_CODE.get(param_value)
           logging.info(f"ResultCode: {response_code}")
+      
+      #handle some important stuff:
       if msg_name == 'DISCONNECT_IND':
+        # graceful disconnect --> technically could still send some apdus
+        # however, we just make it short and sweet and directly disconnect
+        self.send_sap_message("DISCONNECT_REQ")
+      else if msg_name == 'DISCONNECT_RESP'
         self.connected = False
         logging.info(f"Client disconnected")
 
