@@ -59,7 +59,7 @@ class LinkBase(object):
 		"""
 		pass
 
-	def send_apdu(self, pdu):
+	def send_apdu(self, pdu, retry_attempts = 0):
 		"""send_apdu(pdu): Sends an APDU and auto fetch response data
 
 		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
@@ -67,7 +67,12 @@ class LinkBase(object):
 			    data : string (in hex) of returned data (ex. "074F4EFFFF")
 			    sw   : string (in hex) of status word (ex. "9000")
 		"""
-		data, sw = self.send_apdu_raw(pdu)
+		try:
+			data, sw = self.send_apdu_raw(pdu)
+		except Exception as e1:
+			if retry_attempts > 0:
+				return self.send_apdu(pdu, retry_attempts-1)
+			raise
 
 		# When whe have sent the first APDU, the SW may indicate that there are response bytes
 		# available. There are two SWs commonly used for this 9fxx (sim) and 61xx (usim), where
