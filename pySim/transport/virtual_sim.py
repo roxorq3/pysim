@@ -82,10 +82,12 @@ class VirtualSim(threading.Thread):
                 data = self._sl.rx_bytes(lc)
                 logging.info(f"data: {b2h(data)}")
                 apdu += data
+            if case == 4:
+                le += SerialBase.MAX_LENGTH
             return apdu, le
         else:
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
-            return apdu, le
+            return apdu, SerialBase.MAX_LENGTH
 
     def _send_wxt(self):
         self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))

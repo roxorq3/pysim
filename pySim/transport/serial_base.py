@@ -46,7 +46,7 @@ class SerialBase(object):
     PPS_BYTE = 0xff
     WXT_BYTE = 0x60
 
-    BUF_SIZE = 256
+    MAX_LENGTH =  256 # or 65536 when 1 byte is used?
 
     def __init__(self, device='/dev/ttyUSB0', clock=3571200, timeout=1):
         if not os.path.exists(device):
@@ -164,7 +164,7 @@ class SerialBase(object):
 
     def rx_bytes(self, size=None):
         if size is None:
-            size = SerialBase.BUF_SIZE
+            size = SerialBase.MAX_LENGTH
         buf = self._sl.read(size)
         logging.debug(f"rx_bytes [{len(buf)}/{size}]: {b2h(buf)}")
         return buf

@@ -185,12 +185,12 @@ class SerialSimLink(LinkBase):
     def rx_byte(self):
         return self._sl.rx_byte()
 
-    def rx_bytes(self, size=SerialBase.BUF_SIZE):
+    def rx_bytes(self, size=SerialBase.MAX_LENGTH):
         return self._sl.rx_bytes()
     """
 
     """
-    def rx_card_response(self, size=SerialBase.BUF_SIZE, proc = None, wxt = SerialBase.WXT_BYTE): #wxt can be set to None when not needed
+    def rx_card_response(self, size=SerialBase.MAX_LENGTH, proc = None, wxt = SerialBase.WXT_BYTE): #wxt can be set to None when not needed
         buf = _sl.rx_bytes(size)
         while len(buf) > 0:
             if bytes[0] == wxt:
@@ -207,7 +207,7 @@ class SerialSimLink(LinkBase):
     """
 
     # wxt can be set to None when not needed
-    def rx_card_response(self, size=SerialBase.BUF_SIZE, proc=None, wxt=SerialBase.WXT_BYTE):
+    def rx_card_response(self, size=SerialBase.MAX_LENGTH, proc=None, wxt=SerialBase.WXT_BYTE):
         if(size > 0 and any([proc, wxt])):
             while True:
                 # recieve first byte and check if it should be discarded, then recieve the rest
@@ -253,9 +253,11 @@ class SerialSimLink(LinkBase):
                 # received sw1 instead of proc byte; get sw2 and return
                 return proc + self.rx_card_response(1)
             if lc > 0 and len(data):
-                # send proc byte and recieve rest of command
+                # send proc byte and send rest of command
                 self._sl.tx_bytes(data)
                 logging.info(f"data: {b2h(data)}")
+            if case == 4:
+                le += SerialBase.MAX_LENGTH
             return self.rx_card_response(le, ins)
         else:
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
