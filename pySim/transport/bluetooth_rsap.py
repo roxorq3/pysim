@@ -20,7 +20,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+import time
 import struct
+import logging
 import bluetooth
 
 from pySim.exceptions import ReaderError, NoCardError, ProtocolError
@@ -250,50 +252,44 @@ SAP_MESSAGES = [
 
 ]
 
+# UUID for SIM Access Service
+UUID_SIM_ACCESS = '0000112d-0000-1000-8000-00805f9b34fb'
+SAP_MAX_MSG_SIZE = 0xffff
+
 
 class BluetoothSapSimLink(LinkBase):
-    # UUID for SIM Access Service
-    UUID_SIM_ACCESS = '0000112d-0000-1000-8000-00805f9b34fb'
-    SAP_MAX_MSG_SIZE = 0xffff
+
 
     def __init__(self, bt_mac_addr):
         self._bt_mac_addr = bt_mac_addr
+        self._max_msg_size = SAP_MAX_MSG_SIZE
+        self._atr = None
+        self.connected = False
         # at first try to find the bluetooth device
         if not bluetooth.find_service(address=bt_mac_addr):
             raise ReaderError(f"Cannot find bluetooth device [{bt_mac_addr}]")
         # then check for rSAP support
         self._sim_service = next(iter(bluetooth.find_service(
-            uuid=BluetoothSapSimLink.UUID_SIM_ACCESS, address=bt_mac_addr)), None)
+            uuid=UUID_SIM_ACCESS, address=bt_mac_addr)), None)
         if not self._sim_service:
             raise ReaderError(
                 f"Bluetooth device [{bt_mac_addr}] does not support SIM Access service")
 
     def __del__(self):
-        #TODO: do something here
+        # TODO: do something here
         pass
 
-    # def wait_for_card(self, timeout=None, newcardonly=False):
-        """cr = CardRequest(readers=[self._reader], timeout=timeout, newcardonly=newcardonly)
-        try:
-            cr.waitforcard()
-        except CardRequestTimeoutException:
-            raise NoCardError()
-        self.connect()"""
+    def wait_for_card(self, timeout=None, newcardonly=False):
+        self.connect()
 
     def connect(self):
         try:
             self._sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-            self._sock.connect((self._sim_service['host'], self._sim_service['port']))
-            connect_req = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", 0xffff)])
-            
-            print(f"send : {b2h(connect_req)}")
-            self._sock.send(connect_req)
-            connect_resp = self._sock.recv(1024)
-            print(f"recv : {self.parse_sap_message(connect_resp)} ({b2h(connect_resp)})")
-
-            
-            connect_resp = self._sock.recv(1024)
-            print(f"recv : {self.parse_sap_message(connect_resp)} ({b2h(connect_resp)})")
+            self._sock.connect(
+                (self._sim_service['host'], self._sim_service['port']))
+            self.connected = True
+            self.establish_sim_connection()
+            self.retrieve_atr()
         except:
             raise ReaderError("Cannot connect to SIM Access service")
 
@@ -302,23 +298,95 @@ class BluetoothSapSimLink(LinkBase):
 
     def disconnect(self):
         self._sock.close()
+        self.connected = False
 
-    # def reset_card(self):
-    #	self.disconnect()
-    #	self.connect()
-    #	return 1
+    def reset_card(self):
+      if self._connected:
+        reset_sim_req = self.craft_sap_message("RESET_SIM_REQ")
+        self._sock.send(reset_sim_req)
+        msg_name, param_list = self._recv_sap_response('RESET_SIM_RESP')
+        connection_status = next((x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
+        if connection_status == 0x00:
+          logging.info("SIM Reset successful")
+          return 1
+      else:
+        self.disconnect()
+        self.connect()
+      return 1
 
-    # def send_apdu_raw(self, pdu):
-    #	"""see LinkBase.send_apdu_raw"""
-    #
-    #	apdu = h2i(pdu)
-    #
-    # 	data, sw1, sw2 = self._con.transmit(apdu)
-    #
-    #	sw = [sw1, sw2]
-    #
-    #	# Return value
-    #	return i2h(data), i2h(sw)
+    def _recv_sap_message(self):
+      resp = self._sock.recv(self._max_msg_size)
+      msg_name, param_list = self.parse_sap_message(resp)
+      return msg_name, param_list
+
+    def _recv_sap_response(self, waiting_msg_name):
+       while self.connected:
+        msg_name, param_list = self._recv_sap_message()
+        self.handle_sap_response_generic(msg_name, param_list)
+        if msg_name == waiting_msg_name:
+          return msg_name, param_list
+
+
+    def establish_sim_connection(self, retries=5):
+      connect_req = self.craft_sap_message("CONNECT_REQ", [("MaxMsgSize", self._max_msg_size)])
+      self._sock.send(connect_req)
+      msg_name, param_list = self._recv_sap_response('CONNECT_RESP')
+
+      connection_status = next((x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
+      if connection_status == 0x00:
+        logging.info("Successfully connected to rSAP server")
+        return
+      elif connection_status == 0x02:  #invalid max size
+        self._max_msg_size = next((x[1] for x in param_list if x[0] == 'MaxMsgSize'), self._max_msg_size)
+        return self.establish_sim_connection(retries)
+      else:
+        logging.info("Wait some seconds and make another connection attempt...")
+        time.sleep(5)
+        return self.establish_sim_connection(retries-1)
+
+    def retrieve_atr(self):
+      atr_req = self.craft_sap_message("TRANSFER_ATR_REQ")
+      self._sock.send(atr_req)
+      msg_name, param_list = self._recv_sap_response('TRANSFER_ATR_RESP')
+      result_code = next((x[1] for x in param_list if x[0] == 'ResultCode'), 0x01)
+      if result_code == 0x00:        
+        atr = next((x[1] for x in param_list if x[0] == 'ATR'), None)
+        self._atr = atr
+        logging.info(f"Recieved ATR from server: {b2h(atr)}")
+
+    def handle_sap_response_generic(self, msg_name, param_list):
+      logging.info(f"Recieved sap message from server: {(msg_name, param_list)}")
+      for param in param_list:
+        param_name, param_value = param
+        if param_name == 'ConnectionStatus':
+          new_status = SAP_CONNECTION_STATUS.get(param_value)
+          logging.info(f"Connection Status: {new_status}")
+        elif param_name == 'StatusChange':
+          new_status = SAP_STATUS_CHANGE.get(param_value)
+          logging.info(f"SIM Status: {new_status}")
+        elif param_name == 'ResultCode':
+          response_code = SAP_RESULT_CODE.get(param_value)
+          logging.info(f"ResultCode: {response_code}")
+      if msg_name == 'DISCONNECT_IND':
+        self.connected = False
+        logging.info(f"Client disconnected")
+
+      # if msg_name == 'CONNECT_RESP':
+      # elif msg_name == 'DISCONNECT_RESP':
+      # elif msg_name == 'DISCONNECT_IND':
+      # elif msg_name == 'TRANSFER_APDU_RESP':
+      # elif msg_name == 'TRANSFER_ATR_RESP':
+      # elif msg_name == 'POWER_SIM_OFF_RESP':
+      # elif msg_name == 'POWER_SIM_ON_RESP':
+      # elif msg_name == 'RESET_SIM_RESP':
+      # elif msg_name == 'TRANSFER_CARD_READER_STATUS_RESP':
+      # elif msg_name == 'STATUS_IND':
+      # elif msg_name == 'ERROR_RESP':
+      # elif msg_name == 'SET_TRANSPORT_PROTOCOL_RESP':
+      # else:
+      #  logging.error("Unknown message...")
+      
+
     
     def craft_sap_message(self, msg_name, param_list=[]):
         msg_info = next((x for x in SAP_MESSAGES if x.get('name') == msg_name), None)
@@ -327,7 +395,7 @@ class BluetoothSapSimLink(LinkBase):
         
         msg_id = msg_info.get('id')
         msg_params = msg_info.get('parameters')
-        #msg_direction = msg_info.get('client_to_server')
+        # msg_direction = msg_info.get('client_to_server')
 
         param_cnt = len(param_list)
 
@@ -408,11 +476,11 @@ class BluetoothSapSimLink(LinkBase):
       
       msg_name = msg_info.get('name')
       msg_params = msg_info.get('parameters')
-      #msg_direction = msg_info.get('client_to_server')
+      # msg_direction = msg_info.get('client_to_server')
 
       # TODO: check if params allowed etc
-      #allowed_params = (x[0] for x in msg_params)
-      #mandatory_params = (x[0] for x in msg_params if x[1] == True)
+      # allowed_params = (x[0] for x in msg_params)
+      # mandatory_params = (x[0] for x in msg_params if x[1] == True)
 
       param_list=[]
 
@@ -434,14 +502,34 @@ class BluetoothSapSimLink(LinkBase):
 
       param_info = next((x for x in SAP_PARAMETERS if x.get('id') == param_id), None)
       param_name = param_info.get('name') # TODO: check if param found, length plausible, ...
-      #param_len = param_info.get('length')
+
+      if param_info.get('length') is not None: # if it is set then value was int, otherwise it is byte array
+        param_value = int.from_bytes(param_value, "big")
+      # param_len = param_info.get('length')
       return param_name, param_value, total_len
+
+
+    def send_apdu_raw(self, pdu):
+      if isinstance(pdu, str):
+        pdu = h2b(pdu)
+      apdu_req = self.craft_sap_message("TRANSFER_APDU_REQ", [("CommandAPDU", pdu)])
+
+      msg_name, param_list = self._recv_sap_response('TRANSFER_APDU_RESP')
+      result_code = next((x[1] for x in param_list if x[0] == 'ResultCode'), 0x01)
+      if result_code == 0x00:        
+        response = next((x[1] for x in param_list if x[0] == 'ResponseAPDU'), None)
+        sw = response[-2:]
+        data = response[0:-2]
+        return b2h(data), b2h(sw)
+      return None, None
 
       
 
 
 if __name__ == "__main__":
-    # execute only if run as a script
-    link = BluetoothSapSimLink("80:5A:04:0E:90:F6") # nexus 5
-    #link = BluetoothSapSimLink("40:A1:08:91:E2:6A")
-    link.connect()
+  logging.basicConfig(level=logging.DEBUG)
+  # execute only if run as a script
+  #link = BluetoothSapSimLink("94:17:00:71:45:A1") # poco
+  #link = BluetoothSapSimLink("80:5A:04:0E:90:F6") # nexus 5
+  # link = BluetoothSapSimLink("40:A1:08:91:E2:6A") #tablet 
+  link.connect()
