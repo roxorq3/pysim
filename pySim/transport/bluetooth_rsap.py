@@ -425,7 +425,7 @@ class BluetoothSapSimLink(LinkBase):
             collected_param_ids.append(param_id)
             msg_bytes += self.craft_sap_parameter(param_name, param_value)
 
-        if not set(collected_param_ids).issubset(mandatory_params):
+        if not set(mandatory_params).issubset(collected_param_ids):
             raise ProtocolError(f"Missing mandatory parameter for message {msg_name} (mandatory: {*mandatory_params,}, present: {*collected_param_ids,})")
 
         return msg_bytes
