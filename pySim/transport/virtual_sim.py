@@ -180,17 +180,20 @@ class VirtualSim(threading.Thread):
         """
         if self._get_response_cache is not None:
             if apdu[1] == 0xC0: #get response command
+                logging.info(f"return cached response")
                 return self._get_response_cache
-        
         self._get_response_cache = None
         response = self.handle_apdu(apdu)
         response_len = len(response)
-        if response_len > expected_len: # apdu case 4
+
+        if response_len > expected_len : # apdu case 4
             self._get_response_cache = response
             ret_sw = bytearray(2)
             ret_sw[0] = 0x61
             ret_sw[1] = len(response) - SerialBase.SW_LEN
+            logging.info(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
             return ret_sw
+        return response
 
     def handle_apdu(self, apdu):
         # virtual, needs to be implemented
