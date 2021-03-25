@@ -57,7 +57,23 @@ class LinkBase(object):
 			    data : string (in hex) of returned data (ex. "074F4EFFFF")
 			    sw   : string (in hex) of status word (ex. "9000")
 		"""
-		pass
+		self.send_apdu_raw(pdu)
+
+	def send_apdu_failsafe(self, pdu, retry_attempts = 5):
+		"""send_apdu_failsafe(pdu): Sends an APDU with minimal processing and retries on error
+
+		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
+		   return : tuple(data, sw), where
+			    data : string (in hex) of returned data (ex. "074F4EFFFF")
+			    sw   : string (in hex) of status word (ex. "9000")
+		"""
+		try:
+			data, sw = self.send_apdu_raw(pdu)
+			return data, sw
+		except Exception as e1:
+			if retry_attempts > 0:
+				return self.send_apdu_failsafe(pdu, retry_attempts-1)
+			raise
 
 	def send_apdu(self, pdu, retry_attempts = 0):
 		"""send_apdu(pdu): Sends an APDU and auto fetch response data
@@ -67,13 +83,7 @@ class LinkBase(object):
 			    data : string (in hex) of returned data (ex. "074F4EFFFF")
 			    sw   : string (in hex) of status word (ex. "9000")
 		"""
-		try:
-			data, sw = self.send_apdu_raw(pdu)
-		except Exception as e1:
-			if retry_attempts > 0:
-				return self.send_apdu(pdu, retry_attempts-1)
-			raise
-
+		data, sw = self.send_apdu_failsafe(pdu, retry_attempts)
 		# When whe have sent the first APDU, the SW may indicate that there are response bytes
 		# available. There are two SWs commonly used for this 9fxx (sim) and 61xx (usim), where
 		# xx is the number of response bytes available.
@@ -82,8 +92,7 @@ class LinkBase(object):
 		# SW1=61: ISO/IEC 7816-4, Table 5 — General meaning of the interindustry values of SW1-SW2
 		if (sw is not None) and ((sw[0:2] == '9f') or (sw[0:2] == '61')):
 			pdu_gr = pdu[0:2] + 'c00000' + sw[2:4]
-			data, sw = self.send_apdu_raw(pdu_gr)
-
+			data, sw = self.send_apdu_failsafe(pdu_gr, retry_attempts)
 		return data, sw
 
 	def send_apdu_checksw(self, pdu, sw="9000"):
