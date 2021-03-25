@@ -19,7 +19,7 @@
 #
 
 # class VirtualSimCallback(object):
-#    def handle_apdu(self, pdu, expected_len):
+#    def handle_apdu(self, pdu):
 #    pass
 
 import logging
@@ -38,16 +38,15 @@ class VirtualSim(threading.Thread):
     ATR_OFFER_PPS = h2b(
         "3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
 
-    def __init__(self, device='/dev/ttyUSB0', clock=3842000, apdu_callback_handler=None, timeout=60):
+    def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=60):
         super(VirtualSim, self).__init__()
         self.daemon = True
         self._sl = SerialBase(device, clock, timeout)
-        # handle_apdu(pdu, len)
-        self._handle_apdu_callback = apdu_callback_handler
         self._apdu_helper = ApduHelper()
         self._initialized = False
         self._wxt_timer = None
         self._alive = False
+        self._get_response_cache = None
 
     def __del__(self):
         self.stop()
@@ -82,8 +81,8 @@ class VirtualSim(threading.Thread):
                 data = self._sl.rx_bytes(lc)
                 logging.info(f"data: {b2h(data)}")
                 apdu += data
-            if case == 4:
-                le += SerialBase.MAX_LENGTH
+            # if case == 4:  case 4 in sim is not allowed --> request seperately
+            #    le += SerialBase.MAX_LENGTH
             return apdu, le
         else:
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
@@ -109,7 +108,7 @@ class VirtualSim(threading.Thread):
         stop_wxt_thread = self._create_wxt_thread()
         try:
             logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
-            response = self.handle_apdu(apdu, expected_len)
+            response = self.handle_apdu_with_get_response_fix(apdu, expected_len)
             # modem expects additional instruction byte in response for apdu case 2
             if len(response) > 2:
                 response = bytes([apdu[1]]) + response
@@ -166,6 +165,33 @@ class VirtualSim(threading.Thread):
             self._sl.pps_sent(pps_request)
         self._initialized = True
 
-    def handle_apdu(self, apdu, expected_len):
+    def handle_apdu_with_get_response_fix(self, apdu, expected_len):
+        """
+        In the T = 0 protocol, it is not possible to send a block of data to the smart card and receive
+        a block of data from the smart cardwithin a single command–response cycle. 5 This protocol
+        thus does not support case 4 commands, although they are frequently used. It is thus necessary
+        to use a work-around for the T = 0 protocol. This operates in a simple manner. The case 4
+        command is ﬁrst sent to the card, and if it is successful, a special return code is sent to the
+        terminal to advise the terminal that the command has generated data that are waiting to be
+        retrieved. The terminal then sends a GET RESPONSE command to the smart card and receives
+        the data in the response. This completes the command–response cycle for the ﬁrst command.
+        As long as no command other than GET RESPONSE is sent to the card, the response data can
+        be requested multiple times.
+        """
+        if self._get_response_cache is not None:
+            if apdu[1] == 0xC0: #get response command
+                return self._get_response_cache
+        
+        self._get_response_cache = None
+        response = self.handle_apdu(apdu)
+        response_len = len(response)
+        if response_len > expected_len: # apdu case 4
+            self._get_response_cache = response
+            ret_sw = bytearray(2)
+            ret_sw[0] = 0x61
+            ret_sw[1] = len(response) - SerialBase.SW_LEN
+            return ret_sw
+
+    def handle_apdu(self, apdu):
         # virtual, needs to be implemented
         raise NotImplementedError()

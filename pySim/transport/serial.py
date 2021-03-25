@@ -256,8 +256,8 @@ class SerialSimLink(LinkBase):
                 # send proc byte and send rest of command
                 self._sl.tx_bytes(data)
                 logging.info(f"data: {b2h(data)}")
-            if case == 4:
-                le += SerialBase.MAX_LENGTH
+            #if case == 4: #case 4 not allowed for simcard
+            #    le += SerialBase.MAX_LENGTH
             return self.rx_card_response(le, ins)
         else:
             logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
