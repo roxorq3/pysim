@@ -378,7 +378,7 @@ class BluetoothSapSimLink(LinkBase):
         # graceful disconnect --> technically could still send some apdus
         # however, we just make it short and sweet and directly disconnect
         self.send_sap_message("DISCONNECT_REQ")
-      elif msg_name == 'DISCONNECT_RESP'
+      elif msg_name == 'DISCONNECT_RESP':
         self.connected = False
         logging.info(f"Client disconnected")
 
