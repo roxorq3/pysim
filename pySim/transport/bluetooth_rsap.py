@@ -378,7 +378,7 @@ class BluetoothSapSimLink(LinkBase):
         # graceful disconnect --> technically could still send some apdus
         # however, we just make it short and sweet and directly disconnect
         self.send_sap_message("DISCONNECT_REQ")
-      else if msg_name == 'DISCONNECT_RESP'
+      elif msg_name == 'DISCONNECT_RESP'
         self.connected = False
         logging.info(f"Client disconnected")
 
@@ -542,7 +542,8 @@ if __name__ == "__main__":
   # execute only if run as a script
   #link = BluetoothSapSimLink("94:17:00:71:45:A1") # poco
   #link = BluetoothSapSimLink("80:5A:04:0E:90:F6") # nexus 5
-  # link = BluetoothSapSimLink("40:A1:08:91:E2:6A") #tablet 
+  #link = BluetoothSapSimLink("40:A1:08:91:E2:6A") # tablet 
+  #link = BluetoothSapSimLink("54:92:09:73:12:B2") # huawei
   link = BluetoothSapSimLink("80:5A:04:0E:90:F6")
   link.connect()
   link.send_apdu_raw("00a40004023f00")
