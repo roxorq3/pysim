@@ -313,7 +313,8 @@ class TransparentEF(CardEF):
         def do_update_binary(self, opts):
             """Update (Write) data of a transparent EF"""
             (data, sw) = self._cmd.rs.update_binary(opts.data, opts.offset)
-            self._cmd.poutput(data)
+            if data:
+                self._cmd.poutput(data)
 
         upd_bin_dec_parser = argparse.ArgumentParser()
         upd_bin_dec_parser.add_argument('data', help='Abstract data (JSON format) to write')
@@ -322,7 +323,8 @@ class TransparentEF(CardEF):
             """Encode + Update (Write) data of a transparent EF"""
             data_json = json.loads(opts.data)
             (data, sw) = self._cmd.rs.update_binary_dec(data_json)
-            self._cmd.poutput(json.dumps(data, indent=4))
+            if data:
+                self._cmd.poutput(json.dumps(data, indent=4))
 
     def __init__(self, fid, sfid=None, name=None, desc=None, parent=None, size={1,None}):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, parent=parent)
@@ -410,7 +412,8 @@ class LinFixedEF(CardEF):
         def do_update_record(self, opts):
             """Update (write) data to a record-oriented EF"""
             (data, sw) = self._cmd.rs.update_record(opts.record_nr, opts.data)
-            self._cmd.poutput(data)
+            if data:
+                self._cmd.poutput(data)
 
         upd_rec_dec_parser = argparse.ArgumentParser()
         upd_rec_dec_parser.add_argument('record_nr', type=int, help='Number of record to be read')
@@ -419,7 +422,8 @@ class LinFixedEF(CardEF):
         def do_update_record_decoded(self, opts):
             """Encode + Update (write) data to a record-oriented EF"""
             (data, sw) = self._cmd.rs.update_record_dec(opts.record_nr, opts.data)
-            self._cmd.poutput(data)
+            if data:
+                self._cmd.poutput(data)
 
     def __init__(self, fid, sfid=None, name=None, desc=None, parent=None, rec_len={1,None}):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, parent=parent)
@@ -550,10 +554,32 @@ class RuntimeState(object):
         self.selected_file = self.mf
         self.profile = profile
         # add applications + MF-files from profile
-        for a in self.profile.applications:
+        apps = self._match_applications()
+        for a in apps:
             self.mf.add_application(a)
         for f in self.profile.files_in_mf:
             self.mf.add_file(f)
+
+    def _match_applications(self):
+        """match the applications from the profile with applications on the card"""
+        apps_profile = self.profile.applications
+        aids_card = self.card.read_aids()
+        apps_taken = []
+        if aids_card:
+            aids_taken = []
+            print("AIDs on card:")
+            for a in aids_card:
+                for f in apps_profile:
+                    if f.aid in a:
+                        print(" %s: %s" % (f.name, a))
+                        aids_taken.append(a)
+                        apps_taken.append(f)
+            aids_unknown = set(aids_card) - set(aids_taken)
+            for a in aids_unknown:
+                print(" unknown: %s" % a)
+        else:
+            print("error: could not determine card applications")
+        return apps_taken
 
     def get_cwd(self):
         """Obtain the current working directory."""
@@ -684,10 +710,10 @@ def interpret_sw(sw_data, sw):
 class CardApplication(object):
     """A card application is represented by an ADF (with contained hierarchy) and optionally
        some SW definitions."""
-    def __init__(self, name, adf=None, sw={}):
+    def __init__(self, name, adf=None, sw=None):
         self.name = name
         self.adf = adf
-        self.sw = sw
+        self.sw = sw or dict()
 
     def __str__(self):
         return "APP(%s)" % (self.name)
@@ -701,19 +727,19 @@ class CardProfile(object):
     """A Card Profile describes a card, it's filessystem hierarchy, an [initial] list of
        applications as well as profile-specific SW and shell commands.  Every card has
        one card profile, but there may be multiple applications within that profile."""
-    def __init__(self, name, desc=None, files_in_mf=[], sw=[], applications=[], shell_cmdsets=[]):
+    def __init__(self, name, **kw):
         self.name = name
-        self.desc = desc
-        self.files_in_mf = files_in_mf
-        self.sw = sw
-        self.applications = applications
-        self.shell_cmdsets = shell_cmdsets
+        self.desc = kw.get("desc", None)
+        self.files_in_mf = kw.get("files_in_mf", [])
+        self.sw = kw.get("sw", [])
+        self.applications = kw.get("applications", [])
+        self.shell_cmdsets = kw.get("shell_cmdsets", [])
 
     def __str__(self):
         return self.name
 
     def add_application(self, app):
-        self.applications.add(app)
+        self.applications.append(app)
 
     def interpret_sw(self, sw):
         """Interpret a given status word within the profile.  Returns tuple of

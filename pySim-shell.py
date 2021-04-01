@@ -49,17 +49,15 @@ from pySim.ts_31_103 import ADF_ISIM
 
 class PysimApp(cmd2.Cmd):
 	CUSTOM_CATEGORY = 'pySim Commands'
-	def __init__(self, card, rs):
+	def __init__(self, card, rs, script = None):
 		basic_commands = [Iso7816Commands(), UsimCommands()]
 		super().__init__(persistent_history_file='~/.pysim_shell_history', allow_cli_args=False,
-				use_ipython=True, auto_load_commands=False, command_sets=basic_commands)
+				 use_ipython=True, auto_load_commands=False, command_sets=basic_commands, startup_script=script)
 		self.intro = style('Welcome to pySim-shell!', fg=fg.red)
 		self.default_category = 'pySim-shell built-in commands'
 		self.card = card
 		self.rs = rs
 		self.py_locals = { 'card': self.card, 'rs' : self.rs }
-		self.card.read_aids()
-		self.poutput('AIDs on card: %s' % (self.card._aids))
 		self.numeric_path = False
 		self.add_settable(cmd2.Settable('numeric_path', bool, 'Print File IDs instead of names',
 						  onchange_cb=self._onchange_numeric_path))
@@ -83,6 +81,14 @@ class PysimApp(cmd2.Cmd):
 		pin_adm = sanitize_pin_adm(arg)
 		self.card.verify_adm(h2b(pin_adm))
 
+	@cmd2.with_category(CUSTOM_CATEGORY)
+	def do_desc(self, opts):
+		"""Display human readable file description for the currently selected file"""
+		desc = self.rs.selected_file.desc
+		if desc:
+			self.poutput(desc)
+		else:
+			self.poutput("no description available")
 
 
 @with_default_category('ISO7816 Commands')
@@ -92,6 +98,12 @@ class Iso7816Commands(CommandSet):
 
 	def do_select(self, opts):
 		"""SELECT a File (ADF/DF/EF)"""
+		if len(opts.arg_list) == 0:
+			path_list = self._cmd.rs.selected_file.fully_qualified_path(True)
+			path_list_fid = self._cmd.rs.selected_file.fully_qualified_path(False)
+			self._cmd.poutput("currently selected file: " + '/'.join(path_list) + " (" + '/'.join(path_list_fid) + ")")
+			return
+
 		path = opts.arg_list[0]
 		fcp_dec = self._cmd.rs.select(path, self._cmd)
 		self._cmd.update_prompt()
@@ -166,6 +178,64 @@ class Iso7816Commands(CommandSet):
 		"""Display a filesystem-tree with all selectable files"""
 		self.walk()
 
+	def export(self, filename, context):
+		context['COUNT'] += 1
+		path_list = self._cmd.rs.selected_file.fully_qualified_path(True)
+		path_list_fid = self._cmd.rs.selected_file.fully_qualified_path(False)
+
+		self._cmd.poutput("#" * 80)
+		file_str = '/'.join(path_list) + "/" + str(filename) + " " * 80
+		self._cmd.poutput("# " + file_str[0:77] + "#")
+		self._cmd.poutput("#" * 80)
+
+		self._cmd.poutput("# directory: %s (%s)" % ('/'.join(path_list), '/'.join(path_list_fid)))
+		try:
+			fcp_dec = self._cmd.rs.select(filename, self._cmd)
+			path_list = self._cmd.rs.selected_file.fully_qualified_path(True)
+			path_list_fid = self._cmd.rs.selected_file.fully_qualified_path(False)
+			self._cmd.poutput("# file: %s (%s)" % (path_list[-1], path_list_fid[-1]))
+
+			fd = fcp_dec['file_descriptor']
+			structure = fd['structure']
+			self._cmd.poutput("# structure: %s" % str(structure))
+
+			for f in path_list:
+				self._cmd.poutput("select " + str(f))
+
+			if structure == 'transparent':
+				result = self._cmd.rs.read_binary()
+				self._cmd.poutput("update_binary " + str(result[0]))
+			if structure == 'cyclic' or structure == 'linear_fixed':
+				num_of_rec = fd['num_of_rec']
+				for r in range(1, num_of_rec + 1):
+					result = self._cmd.rs.read_record(r)
+					self._cmd.poutput("update_record %d %s" % (r, str(result[0])))
+			fcp_dec = self._cmd.rs.select("..", self._cmd)
+		except Exception as e:
+			bad_file_str = '/'.join(path_list) + "/" + str(filename) + ", " + str(e)
+			self._cmd.poutput("# bad file: %s" % bad_file_str)
+			context['ERR'] += 1
+			context['BAD'].append(bad_file_str)
+
+		self._cmd.poutput("#")
+
+	export_parser = argparse.ArgumentParser()
+	export_parser.add_argument('--filename', type=str, default=None, help='only export specific file')
+
+	@cmd2.with_argparser(export_parser)
+	def do_export(self, opts):
+		"""Export files to script that can be imported back later"""
+		context = {'ERR':0, 'COUNT':0, 'BAD':[]}
+		if opts.filename:
+			self.export(opts.filename, context)
+		else:
+			self.walk(0, self.export, context)
+		self._cmd.poutput("# total files visited: %u" % context['COUNT'])
+		self._cmd.poutput("# bad files:           %u" % context['ERR'])
+		for b in context['BAD']:
+			self._cmd.poutput("#  " + b)
+		if context['ERR']:
+			raise RuntimeError("unable to export %i file(s)" % context['ERR'])
 
 
 @with_default_category('USIM Commands')
@@ -214,6 +284,10 @@ def parse_options():
 			help="Socket path for Calypso (e.g. Motorola C1XX) based reader (via OsmocomBB)",
 			default=None,
 		)
+	parser.add_option("--script", dest="script", metavar="PATH",
+			help="script with shell commands to be executed automatically",
+			default=None,
+		)
 
 	parser.add_option("-a", "--pin-adm", dest="pin_adm",
 			help="ADM PIN used for provisioning (overwrites default)",
@@ -254,14 +328,25 @@ if __name__ == '__main__':
 		sys.exit(2)
 
 	profile = CardProfileUICC()
+	profile.add_application(ADF_USIM())
+	profile.add_application(ADF_ISIM())
+
 	rs = RuntimeState(card, profile)
 
 	# FIXME: do this dynamically
 	rs.mf.add_file(DF_TELECOM())
 	rs.mf.add_file(DF_GSM())
-	rs.mf.add_application(ADF_USIM())
-	rs.mf.add_application(ADF_ISIM())
 
-	app = PysimApp(card, rs)
+	app = PysimApp(card, rs, opts.script)
 	rs.select('MF', app)
+
+	# If the user supplies an ADM PIN at via commandline args authenticate
+	# immediatley so that the user does not have to use the shell commands
+	pin_adm = sanitize_pin_adm(opts.pin_adm, opts.pin_adm_hex)
+	if pin_adm:
+		try:
+			card.verify_adm(h2b(pin_adm))
+		except Exception as e:
+			print(e)
+
 	app.cmdloop()
