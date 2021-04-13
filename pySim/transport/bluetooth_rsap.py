@@ -326,7 +326,7 @@ class BluetoothSapSimLink(LinkBase):
 			return msg_name, param_list
 
 		def _recv_sap_response(self, waiting_msg_name):
-			 while self.connected:
+			while self.connected:
 				msg_name, param_list = self._recv_sap_message()
 				self.handle_sap_response_generic(msg_name, param_list)
 				if msg_name == waiting_msg_name:
@@ -534,7 +534,6 @@ class BluetoothSapSimLink(LinkBase):
 				return b2h(data), b2h(sw)
 			return None, None
 
-			
 
 
 if __name__ == "__main__":
