@@ -319,19 +319,12 @@ EF_SST_map = {
 	59: 'MMS User Connectivity Parameters',
 }
 
-# 10.3.18 "EF.AD (Administrative data) "
-EF_AD_mode_map = {
-	'00' : 'normal operation',
-	'80' : 'type approval operations',
-	'01' : 'normal operation + specific facilities',
-	'81' : 'type approval operations + specific facilities',
-	'02' : 'maintenance (off line)',
-	'04' : 'cell test operation',
-}
-
-
 from pySim.utils import *
 from struct import pack, unpack
+from construct import *
+from construct import Optional as COptional
+from pySim.construct import HexAdapter, BcdAdapter, FlagRFU, ByteRFU, GreedyBytesRFU, BitsRFU, BytesRFU
+import enum
 
 from pySim.filesystem import *
 import pySim.ts_102_221
@@ -352,8 +345,38 @@ class EF_ADN(LinFixedEF):
                 'dialing_nr': u[2], 'cap_conf_id': u[3], 'ext1_record_id': u[4]}
 
 # TS 51.011 Section 10.5.5
+class EF_SMS(LinFixedEF):
+    def __init__(self, fid='6f3c', sfid=None, name='EF.SMS', desc='Short messages'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len={176,176})
+    def _decode_record_bin(self, raw_bin_data):
+        def decode_status(status):
+            if status & 0x01 == 0x00:
+                return (None, 'free_space')
+            elif status & 0x07 == 0x01:
+                return ('mt', 'message_read')
+            elif status & 0x07 == 0x03:
+                return ('mt', 'message_to_be_read')
+            elif status & 0x07 == 0x07:
+                return ('mo', 'message_to_be_sent')
+            elif status & 0x1f == 0x05:
+                return ('mo', 'sent_status_not_requested')
+            elif status & 0x1f == 0x0d:
+                return ('mo', 'sent_status_req_but_not_received')
+            elif status & 0x1f == 0x15:
+                return ('mo', 'sent_status_req_rx_not_stored_smsr')
+            elif status & 0x1f == 0x1d:
+                return ('mo', 'sent_status_req_rx_stored_smsr')
+            else:
+                return (None, 'rfu')
+
+        status = decode_status(raw_bin_data[0])
+        remainder = raw_bin_data[1:]
+        return {'direction': status[0], 'status': status[1], 'remainder': b2h(remainder)}
+
+
+# TS 51.011 Section 10.5.5
 class EF_MSISDN(LinFixedEF):
-    def __init__(self, fid='6f4f', sfid=None, name='EF.MSISDN', desc='MSISDN'):
+    def __init__(self, fid='6f40', sfid=None, name='EF.MSISDN', desc='MSISDN'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len={15, None})
     def _decode_record_hex(self, raw_hex_data):
         return {'msisdn': dec_msisdn(raw_hex_data)}
@@ -365,15 +388,55 @@ class EF_SMSP(LinFixedEF):
     def __init__(self, fid='6f42', sfid=None, name='EF.SMSP', desc='Short message service parameters'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len={28, None})
 
+# TS 51.011 Section 10.5.7
+class EF_SMSS(TransparentEF):
+    class MemCapAdapter(Adapter):
+        def _decode(self, obj, context, path):
+            return False if obj & 1 else True
+        def _encode(self, obj, context, path):
+            return 0 if obj else 1
+    def __init__(self, fid='6f43', sfid=None, name='EF.SMSS', desc='SMS status', size={2,8}):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('last_used_tpmr'/Int8ub, 'memory_capacity_exceeded'/self.MemCapAdapter(Int8ub))
+
+# TS 51.011 Section 10.5.8
+class EF_SMSR(LinFixedEF):
+    def __init__(self, fid='6f47', sfid=None, name='EF.SMSR', desc='SMS status reports', rec_len={30,30}):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('sms_record_id'/Int8ub, 'sms_status_report'/HexAdapter(Bytes(29)))
+
+class EF_EXT(LinFixedEF):
+    def __init__(self, fid, sfid=None, name='EF.EXT', desc='Extension', rec_len={13,13}):
+        super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('record_type'/Int8ub, 'extension_data'/HexAdapter(Bytes(11)), 'identifier'/Int8ub)
+
+# TS 51.011 Section 10.5.16
+class EF_CMI(LinFixedEF):
+    def __init__(self, fid='6f58', sfid=None, name='EF.CMI', rec_len={2,21},
+                 desc='Comparison Method Information'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('alpha_id'/Bytes(this._.total_len-1), 'comparison_method_id'/Int8ub)
+
 class DF_TELECOM(CardDF):
     def __init__(self, fid='7f10', name='DF.TELECOM', desc=None):
         super().__init__(fid=fid, name=name, desc=desc)
         files = [
           EF_ADN(),
-          # FDN, SMS, CCP, ECCP
+          EF_ADN(fid='6f3b', name='EF_FDN', desc='Fixed dialling numbers'),
+          EF_SMS(),
+          LinFixedEF(fid='6f3d', name='EF.CCP', desc='Capability Configuration Parameters', rec_len={14,14}),
+          LinFixedEF(fid='6f4f', name='EF.ECCP', desc='Extended Capability Configuration Parameters', rec_len={15,32}),
           EF_MSISDN(),
           EF_SMSP(),
-          # SMSS, LND, SDN, EXT1, EXT2, EXT3, BDN, EXT4, SMSR, CMI
+          EF_SMSS(),
+          # LND, SDN
+          EF_EXT('6f4a', None, 'EF.EXT1', 'Extension1 (ADN/SSC)'),
+          EF_EXT('6f4b', None, 'EF.EXT2', 'Extension2 (FDN/SSC)'),
+          EF_EXT('6f4c', None, 'EF.EXT3', 'Extension3 (SDN)'),
+          EF_ADN(fid='6f4d', name='EF.BDN', desc='Barred Dialling Numbers'),
+          EF_EXT('6f4e', None, 'EF.EXT4', 'Extension4 (BDN/SSC)'),
+          EF_SMSR(),
+          EF_CMI(),
           ]
         self.add_files(files)
 
@@ -419,6 +482,13 @@ class EF_PLMNsel(TransRecEF):
         else:
             return enc_plmn(in_json['mcc'], in_json['mnc'])
 
+# TS 51.011 Section 10.3.6
+class EF_ACMmax(TransparentEF):
+    def __init__(self, fid='6f37', sfid=None, name='EF.ACMmax', size={3,3},
+                 desc='ACM maximum value'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('acm_max'/Int24ub)
+
 # TS 51.011 Section 10.3.7
 class EF_ServiceTable(TransparentEF):
     def __init__(self, fid, sfid, name, desc, size, table):
@@ -463,31 +533,86 @@ class EF_ACC(TransparentEF):
     def _encode_bin(self, abstract):
         return pack('!H', abstract['acc'])
 
+# TS 51.011 Section 10.3.16
+class EF_LOCI(TransparentEF):
+    def __init__(self, fid='6f7e', sfid=None, name='EF.LOCI', desc='Location Information', size={11,11}):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('tmsi'/Bytes(4), 'lai'/Bytes(5), 'tmsi_time'/Int8ub,
+                                 'lu_status'/Enum(Byte, updated=0, not_updated=1, plmn_not_allowed=2,
+                                                  location_area_not_allowed=3))
+
 # TS 51.011 Section 10.3.18
 class EF_AD(TransparentEF):
-    OP_MODE = {
-            0x00: 'normal operation',
-            0x80: 'type approval operations',
-            0x01: 'normal operation + specific facilities',
-            0x81: 'type approval + specific facilities',
-            0x02: 'maintenance (off line)',
-            0x04: 'cell test operation',
-        }
+    class OP_MODE(enum.IntEnum):
+        normal                                  = 0x00
+        type_approval                           = 0x80
+        normal_and_specific_facilities          = 0x01
+        type_approval_and_specific_facilities   = 0x81
+        maintenance_off_line                    = 0x02
+        cell_test                               = 0x04
+    #OP_MODE_DICT = {int(v) : str(v) for v in EF_AD.OP_MODE}
+    #OP_MODE_DICT_REVERSED = {str(v) : int(v) for v in EF_AD.OP_MODE}
+
     def __init__(self, fid='6fad', sfid=None, name='EF.AD', desc='Administrative Data', size={3,4}):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
-    def _decode_bin(self, raw_bin):
-        u = unpack('!BH', raw_bin[:3])
+        self._construct = BitStruct(
+            # Byte 1
+            'ms_operation_mode'/Bytewise(Enum(Byte, EF_AD.OP_MODE)),
+            # Byte 2
+            'rfu1'/Bytewise(ByteRFU),
+            # Byte 3
+            'rfu2'/BitsRFU(7),
+            'ofm'/Flag,
+            # Byte 4 (optional),
+            'extensions'/COptional(Struct(
+                'rfu3'/BitsRFU(4),
+                'mnc_len'/BitsInteger(4),
+                # Byte 5..N-4 (optional, RFU)
+                'extensions'/Bytewise(GreedyBytesRFU)
+            ))
+        )
 
-# TS 51.011 Section 10.3.13
+# TS 51.011 Section 10.3.20 / 10.3.22
+class EF_VGCS(TransRecEF):
+    def __init__(self, fid='6fb1', sfid=None, name='EF.VGCS', size={4,200}, rec_len=4,
+                 desc='Voice Group Call Service'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
+        self._construct = BcdAdapter(Bytes(4))
+
+# TS 51.011 Section 10.3.21 / 10.3.23
+class EF_VGCSS(TransparentEF):
+    def __init__(self, fid='6fb2', sfid=None, name='EF.VGCSS', size={7,7},
+                 desc='Voice Group Call Service Status'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = BitStruct('flags'/Bit[50], Padding(6, pattern=b'\xff'))
+
+# TS 51.011 Section 10.3.24
+class EF_eMLPP(TransparentEF):
+    def __init__(self, fid='6fb5', sfid=None, name='EF.eMLPP', size={2,2},
+                 desc='enhanced Multi Level Pre-emption and Priority'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        FlagsConstruct = FlagsEnum(Byte, A=1, B=2, zero=4, one=8, two=16, three=32, four=64)
+        self._construct = Struct('levels'/FlagsConstruct, 'fast_call_setup_cond'/FlagsConstruct)
+
+# TS 51.011 Section 10.3.25
+class EF_AAeM(TransparentEF):
+    def __init__(self, fid='6fb6', sfid=None, name='EF.AAeM', size={1,1},
+                 desc='Automatic Answer for eMLPP Service'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        FlagsConstruct = FlagsEnum(Byte, A=1, B=2, zero=4, one=8, two=16, three=32, four=64)
+        self._construct = Struct('auto_answer_prio_levels'/FlagsConstruct)
+
+# TS 51.011 Section 10.3.26
 class EF_CBMID(EF_CBMI):
     def __init__(self, fid='6f48', sfid=None, name='EF.CBMID', size={2,None}, rec_len=2,
                  desc='Cell Broadcast Message Identifier for Data Download'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
 
-# TS 51.011 Section 10.3.26
-class EF_ECC(LinFixedEF):
-    def __init__(self, fid='6fb7', sfid=None, name='EF.ECC', desc='Emergency Call Codes'):
-        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len={4, 20})
+# TS 51.011 Section 10.3.27
+class EF_ECC(TransRecEF):
+    def __init__(self, fid='6fb7', sfid=None, name='EF.ECC', size={3,15}, rec_len=3,
+                 desc='Emergency Call Codes'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
 
 # TS 51.011 Section 10.3.28
 class EF_CBMIR(TransRecEF):
@@ -495,6 +620,52 @@ class EF_CBMIR(TransRecEF):
                  desc='Cell Broadcast message identifier range selection'):
         super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
 
+# TS 51.011 Section 10.3.29
+class EF_DCK(TransparentEF):
+    def __init__(self, fid='6f2c', sfid=None, name='EF.DCK', size={16,16},
+                 desc='Depersonalisation Control Keys'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('network'/BcdAdapter(Bytes(4)),
+                                 'network_subset'/BcdAdapter(Bytes(4)),
+                                 'service_provider'/BcdAdapter(Bytes(4)),
+                                 'corporate'/BcdAdapter(Bytes(4)))
+# TS 51.011 Section 10.3.30
+class EF_CNL(TransRecEF):
+    def __init__(self, fid='6f32', sfid=None, name='EF.CNL', size={6,None}, rec_len=6,
+                 desc='Co-operative Network List'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
+    def _decode_record_hex(self, in_hex):
+        (in_plmn, sub, svp, corp) = unpack('!3sBBB', h2b(in_hex))
+        res = dec_plmn(b2h(in_plmn))
+        res['network_subset'] = sub
+        res['service_provider_id'] = svp
+        res['corporate_id'] = corp
+        return res
+    def _encode_record_hex(self, in_json):
+        plmn = enc_plmn(in_json['mcc'], in_json['mnc'])
+        return b2h(pack('!3sBBB', h2b(plmn), res['network_subset'], res['service_provider_id'],
+                        res['corporate_id']))
+
+# TS 51.011 Section 10.3.31
+class EF_NIA(LinFixedEF):
+    def __init__(self, fid='6f51', sfid=None, name='EF.NIA', rec_len={1,32},
+                 desc='Network\'s Indication of Alerting'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('alerting_category'/Int8ub, 'category'/GreedyBytes)
+
+# TS 51.011 Section 10.3.32
+class EF_Kc(TransparentEF):
+    def __init__(self, fid='6f20', sfid=None, name='EF.Kc', desc='Ciphering key Kc', size={9,9}):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('kc'/HexAdapter(Bytes(8)), 'cksn'/Int8ub)
+
+# TS 51.011 Section 10.3.33
+class EF_LOCIGPRS(TransparentEF):
+    def __init__(self, fid='6f53', sfid=None, name='EF.LOCIGPRS', desc='GPRS Location Information', size={14,14}):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = Struct('ptmsi'/Bytes(4), 'ptmsi_sig'/Int8ub, 'rai'/Bytes(6),
+                                 'rau_status'/Enum(Byte, updated=0, not_updated=1, plmn_not_allowed=2,
+                                                   routing_area_not_allowed=3))
 
 # TS 51.011 Section 10.3.35..37
 class EF_xPLMNwAcT(TransRecEF):
@@ -540,6 +711,68 @@ class EF_xPLMNwAcT(TransRecEF):
             u16 |= 0x0088
         return '%04X'%(u16)
 
+# TS 51.011 Section 10.3.38
+class EF_CPBCCH(TransRecEF):
+    def __init__(self, fid='6f63', sfid=None, name='EF.CPBCCH', size={2,14}, rec_len=2,
+                 desc='CPBCCH Information'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size, rec_len=rec_len)
+        self._construct = Struct('cpbcch'/Int16ub)
+
+# TS 51.011 Section 10.3.39
+class EF_InvScan(TransparentEF):
+    def __init__(self, fid='6f64', sfid=None, name='EF.InvScan', size={1,1},
+                 desc='IOnvestigation Scan'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+        self._construct = FlagsEnum(Byte, in_limited_service_mode=1, after_successful_plmn_selection=2)
+
+# TS 51.011 Section 10.3.42
+class EF_OPL(LinFixedEF):
+    def __init__(self, fid='6fc6', sfid=None, name='EF.OPL', rec_len={8,8}, desc='Operator PLMN List'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('lai'/Bytes(5), 'pnn_record_id'/Int8ub)
+
+# TS 51.011 Section 10.3.44 + TS 31.102 4.2.62
+class EF_MBI(LinFixedEF):
+    def __init__(self, fid='6fc9', sfid=None, name='EF.MBI', rec_len={4,5}, desc='Mailbox Identifier'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('mbi_voicemail'/Int8ub, 'mbi_fax'/Int8ub, 'mbi_email'/Int8ub,
+                                 'mbi_other'/Int8ub, 'mbi_videocall'/COptional(Int8ub))
+
+# TS 51.011 Section 10.3.45 + TS 31.102 4.2.63
+class EF_MWIS(LinFixedEF):
+    def __init__(self, fid='6fca', sfid=None, name='EF.MWIS', rec_len={5,6},
+                 desc='Message Waiting Indication Status'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('mwi_status'/FlagsEnum(Byte, voicemail=1, fax=2, email=4, other=8, videomail=16),
+                                 'num_waiting_voicemail'/Int8ub,
+                                 'num_waiting_fax'/Int8ub, 'num_waiting_email'/Int8ub,
+                                 'num_waiting_other'/Int8ub, 'num_waiting_videomail'/COptional(Int8ub))
+
+# TS 51.011 Section 10.3.51
+class EF_MMSN(LinFixedEF):
+    def __init__(self, fid='6fce', sfid=None, name='EF.MMSN', rec_len={4,20}, desc='MMS Notification'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+        self._construct = Struct('mms_status'/Bytes(2), 'mms_implementation'/Bytes(1),
+                                 'mms_notification'/Bytes(this._.total_len-4), 'ext_record_nr'/Byte)
+
+# TS 51.011 Section 10.3.53
+class EF_MMSICP(TransparentEF):
+    def __init__(self, fid='6fd0', sfid=None, name='EF.MMSICP', size={1,None},
+                 desc='MMS Issuer Connectivity Parameters'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+
+# TS 51.011 Section 10.3.54
+class EF_MMSUP(LinFixedEF):
+    def __init__(self, fid='6fd1', sfid=None, name='EF.MMSUP', rec_len={1,None},
+                 desc='MMS User Preferences'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, rec_len=rec_len)
+
+# TS 51.011 Section 10.3.55
+class EF_MMSUCP(TransparentEF):
+    def __init__(self, fid='6fd2', sfid=None, name='EF.MMSUCP', size={1,None},
+                 desc='MMS User Connectivity Parameters'):
+        super().__init__(fid, sfid=sfid, name=name, desc=desc, size=size)
+
 
 class DF_GSM(CardDF):
     def __init__(self, fid='7f20', name='DF.GSM', desc='GSM Network related files'):
@@ -547,12 +780,12 @@ class DF_GSM(CardDF):
         files = [
           EF_LP(),
           EF_IMSI(),
-          TransparentEF('5f20', None, 'EF.Kc', 'Ciphering key Kc'),
+          EF_Kc(),
           EF_PLMNsel(),
           TransparentEF('6f31', None, 'EF.HPPLMN', 'Higher Priority PLMN search period'),
-          # ACMmax
-          EF_ServiceTable('6f37', None, 'EF.SST', 'SIM service table', table=EF_SST_map, size={2,16}),
-          CyclicEF('6f39', None, 'EF.ACM', 'Accumulated call meter', rec_len={4,3}),
+          EF_ACMmax(),
+          EF_ServiceTable('6f38', None, 'EF.SST', 'SIM service table', table=EF_SST_map, size={2,16}),
+          CyclicEF('6f39', None, 'EF.ACM', 'Accumulated call meter', rec_len={3,3}),
           TransparentEF('6f3e', None, 'EF.GID1', 'Group Identifier Level 1'),
           TransparentEF('6f3f', None, 'EF.GID2', 'Group Identifier Level 2'),
           EF_SPN(),
@@ -561,21 +794,45 @@ class DF_GSM(CardDF):
           TransparentEF('6f7f', None, 'EF.BCCH', 'Broadcast control channels', size={16,16}),
           EF_ACC(),
           EF_PLMNsel('6f7b', None, 'EF.FPLMN', 'Forbidden PLMNs', size={12,12}),
-          TransparentEF('6f7e', None, 'EF.LOCI', 'Locationn information', size={11,11}),
+          EF_LOCI(),
           EF_AD(),
           TransparentEF('6fa3', None, 'EF.Phase', 'Phase identification', size={1,1}),
-        # TODO EF.VGCS VGCSS, VBS, VBSS, eMLPP, AAeM
+          EF_VGCS(),
+          EF_VGCSS(),
+          EF_VGCS('6fb3', None, 'EF.VBS', 'Voice Broadcast Service'),
+          EF_VGCSS('6fb4', None, 'EF.VBSS', 'Voice Broadcast Service Status'),
+          EF_eMLPP(),
+          EF_AAeM(),
           EF_CBMID(),
           EF_ECC(),
           EF_CBMIR(),
-          # DCK, CNL, NIA, KcGRS, LOCIGPRS, SUME
+          EF_DCK(),
+          EF_CNL(),
+          EF_NIA(),
+          EF_Kc('6f52', None, 'EF.KcGPRS', 'GPRS Ciphering key KcGPRS'),
+          EF_LOCIGPRS(),
+          TransparentEF('6f54', None, 'EF.SUME', 'SetUpMenu Elements'),
           EF_xPLMNwAcT('6f60', None, 'EF.PLMNwAcT',
                                    'User controlled PLMN Selector with Access Technology'),
           EF_xPLMNwAcT('6f61', None, 'EF.OPLMNwAcT',
                                    'Operator controlled PLMN Selector with Access Technology'),
           EF_xPLMNwAcT('6f62', None, 'EF.HPLMNwAcT', 'HPLMN Selector with Access Technology'),
-          # CPBCCH, InvScan, PNN, OPL, MBDN, MBI, MWIS, CFIS, EXT5, EXT6, EXT7, SPDI, MMSN, EXT8
-          # MMSICP, MMSUP, MMSUCP
+          EF_CPBCCH(),
+          EF_InvScan(),
+          LinFixedEF('6fc5', None,'EF.PNN', 'PLMN Network Name'),
+          EF_OPL(),
+          EF_ADN('6fc7', None, 'EF.MBDN', 'Mailbox Dialling Numbers'),
+          EF_MBI(),
+          EF_MWIS(),
+          EF_ADN('6fcb', None, 'EF.CFIS', 'Call Forwarding Indication Status'),
+          EF_EXT('6fc8', None, 'EF.EXT6', 'Externsion6 (MBDN)'),
+          EF_EXT('6fcc', None, 'EF.EXT7', 'Externsion7 (CFIS)'),
+          TransparentEF('6fcd', None, 'EF.SPDI', 'Service Provider Display Information'),
+          EF_MMSN(),
+          EF_EXT('6fcf', None, 'EF.EXT8', 'Extension8 (MMSN)'),
+          EF_MMSICP(),
+          EF_MMSUP(),
+          EF_MMSUCP(),
           ]
         self.add_files(files)
 
@@ -608,7 +865,7 @@ def decode_select_response(resp_hex):
         ret['file_characteristics'] = b2h(resp_bin[13])
         ret['num_direct_child_df'] = int(resp_bin[14], 16)
         ret['num_direct_child_ef'] = int(resp_bin[15], 16)
-        ret['num_chv_unbkock_adm_codes'] = int(resp_bin[16])
+        ret['num_chv_unblock_adm_codes'] = int(resp_bin[16])
         # CHV / UNBLOCK CHV stats
     elif file_type in ['working_ef']:
         file_struct = struct_of_file_map[resp_bin[13]] if resp_bin[13] in struct_of_file_map else resp_bin[13]

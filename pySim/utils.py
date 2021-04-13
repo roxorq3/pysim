@@ -3,8 +3,12 @@
 """ pySim: various utilities
 """
 
-#
+import json
+from io import BytesIO
+from typing import Optional, List, Dict, Any, Tuple
+
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
+# Copyright (C) 2021 Harald Welte <laforge@osmocom.org>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,45 +24,69 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+# just to differentiate strings of hex nibbles from everything else
+Hexstr = str
 
-def h2b(s):
+def h2b(s:Hexstr) -> bytearray:
 	"""convert from a string of hex nibbles to a sequence of bytes"""
 	return bytearray.fromhex(s)
 
-def b2h(b):
+def b2h(b:bytearray) -> Hexstr:
 	"""convert from a sequence of bytes to a string of hex nibbles"""
 	#return ''.join(['%02x'%(x) for x in b])
 	return b.hex()
 
-def h2i(s):
+def h2i(s:Hexstr) -> List[int]:
+	"""convert from a string of hex nibbles to a list of integers"""
 	return [(int(x,16)<<4)+int(y,16) for x,y in zip(s[0::2], s[1::2])]
 
-def i2h(s):
+def i2h(s:List[int]) -> Hexstr:
+	"""convert from a list of integers to a string of hex nibbles"""
 	return ''.join(['%02x'%(x) for x in s])
 
-def h2s(s):
+def h2s(s:Hexstr) -> str:
+	"""convert from a string of hex nibbles to an ASCII string"""
 	return ''.join([chr((int(x,16)<<4)+int(y,16)) for x,y in zip(s[0::2], s[1::2])
 							  if int(x + y, 16) != 0xff])
 
-def s2h(s):
+def s2h(s:str) -> Hexstr:
+	"""convert from an ASCII string to a string of hex nibbles"""
 	b = bytearray()
 	b.extend(map(ord, s))
 	return b2h(b)
 
 # List of bytes to string
-def i2s(s):
+def i2s(s:List[int]) -> str:
+	"""convert from a list of integers to an ASCII string"""
 	return ''.join([chr(x) for x in s])
 
-def swap_nibbles(s):
+def swap_nibbles(s:Hexstr) -> Hexstr:
+	"""swap the nibbles in a hex string"""
 	return ''.join([x+y for x,y in zip(s[1::2], s[0::2])])
 
-def rpad(s, l, c='f'):
+def rpad(s:str, l:int, c='f') -> str:
+	"""pad string on the right side.
+	Args:
+		s : string to pad
+		l : total length to pad to
+		c : padding character
+	Returns:
+		String 's' padded with as many 'c' as needed to reach total length of 'l'
+	"""
 	return s + c * (l - len(s))
 
-def lpad(s, l, c='f'):
+def lpad(s:str, l:int, c='f') -> str:
+	"""pad string on the left side.
+	Args:
+		s : string to pad
+		l : total length to pad to
+		c : padding character
+	Returns:
+		String 's' padded with as many 'c' as needed to reach total length of 'l'
+	"""
 	return c * (l - len(s)) + s
 
-def half_round_up(n):
+def half_round_up(n:int) -> int:
 	return (n + 1)//2
 
 # IMSI encoded format:
@@ -76,15 +104,15 @@ def half_round_up(n):
 # Because of this, an odd length IMSI fits exactly into len(imsi) + 1 // 2 bytes, whereas an
 # even length IMSI only uses half of the last byte.
 
-def enc_imsi(imsi):
-	"""Converts a string imsi into the value of the EF"""
+def enc_imsi(imsi:str):
+	"""Converts a string IMSI into the encoded value of the EF"""
 	l = half_round_up(len(imsi) + 1)	# Required bytes - include space for odd/even indicator
 	oe = len(imsi) & 1			# Odd (1) / Even (0)
 	ei = '%02x' % l + swap_nibbles('%01x%s' % ((oe<<3)|1, rpad(imsi, 15)))
 	return ei
 
-def dec_imsi(ef):
-	"""Converts an EF value to the imsi string representation"""
+def dec_imsi(ef:Hexstr) -> Optional[str]:
+	"""Converts an EF value to the IMSI string representation"""
 	if len(ef) < 4:
 		return None
 	l = int(ef[0:2], 16) * 2		# Length of the IMSI string
@@ -101,10 +129,10 @@ def dec_imsi(ef):
 	imsi = swapped[1:]
 	return imsi
 
-def dec_iccid(ef):
+def dec_iccid(ef:Hexstr) -> str:
 	return swap_nibbles(ef).strip('f')
 
-def enc_iccid(iccid):
+def enc_iccid(iccid:str) -> Hexstr:
 	return swap_nibbles(rpad(iccid, 20))
 
 def enc_plmn(mcc, mnc):
@@ -112,6 +140,12 @@ def enc_plmn(mcc, mnc):
 	if len(mnc) == 2:
 		mnc += "F" # pad to 3 digits if needed
 	return (mcc[1] + mcc[0]) + (mnc[2] + mcc[2]) + (mnc[1] + mnc[0])
+
+def dec_plmn(threehexbytes:Hexstr) -> dict:
+	res = {'mcc': 0, 'mnc': 0 }
+	res['mcc'] = dec_mcc_from_plmn(threehexbytes)
+	res['mnc'] = dec_mnc_from_plmn(threehexbytes)
+	return res
 
 def dec_spn(ef):
 	byte1 = int(ef[0:2])
@@ -130,7 +164,7 @@ def hexstr_to_Nbytearr(s, nbytes):
 	return [s[i:i+(nbytes*2)] for i in range(0, len(s), (nbytes*2)) ]
 
 # Accepts hex string representing three bytes
-def dec_mcc_from_plmn(plmn):
+def dec_mcc_from_plmn(plmn:Hexstr) -> int:
 	ia = h2i(plmn)
 	digit1 = ia[0] & 0x0F		# 1st byte, LSB
 	digit2 = (ia[0] & 0xF0) >> 4	# 1st byte, MSB
@@ -139,7 +173,7 @@ def dec_mcc_from_plmn(plmn):
 		return 0xFFF # 4095
 	return derive_mcc(digit1, digit2, digit3)
 
-def dec_mnc_from_plmn(plmn):
+def dec_mnc_from_plmn(plmn:Hexstr) -> int:
 	ia = h2i(plmn)
 	digit1 = ia[2] & 0x0F		# 3rd byte, LSB
 	digit2 = (ia[2] & 0xF0) >> 4	# 3rd byte, MSB
@@ -148,7 +182,7 @@ def dec_mnc_from_plmn(plmn):
 		return 0xFFF # 4095
 	return derive_mnc(digit1, digit2, digit3)
 
-def dec_act(twohexbytes):
+def dec_act(twohexbytes:Hexstr) -> List[str]:
 	act_list = [
 		{'bit': 15, 'name': "UTRAN"},
 		{'bit': 14, 'name': "E-UTRAN"},
@@ -165,7 +199,7 @@ def dec_act(twohexbytes):
 			sel.append(a['name'])
 	return sel
 
-def dec_xplmn_w_act(fivehexbytes):
+def dec_xplmn_w_act(fivehexbytes:Hexstr) -> Dict[str,Any]:
 	res = {'mcc': 0, 'mnc': 0, 'act': []}
 	plmn_chars = 6
 	act_chars = 4
@@ -217,7 +251,7 @@ def dec_epsloci(hexstr):
 	res['status'] = h2i(hexstr[34:36])
 	return res
 
-def dec_xplmn(threehexbytes):
+def dec_xplmn(threehexbytes:Hexstr) -> dict:
 	res = {'mcc': 0, 'mnc': 0, 'act': []}
 	plmn_chars = 6
 	plmn_str = threehexbytes[:plmn_chars]				# first three bytes (six ascii hex chars)
@@ -225,7 +259,7 @@ def dec_xplmn(threehexbytes):
 	res['mnc'] = dec_mnc_from_plmn(plmn_str)
 	return res
 
-def format_xplmn(hexstr):
+def format_xplmn(hexstr:Hexstr) -> str:
 	s = ""
 	for rec_data in hexstr_to_Nbytearr(hexstr, 3):
 		rec_info = dec_xplmn(rec_data)
@@ -236,7 +270,7 @@ def format_xplmn(hexstr):
 		s += "\t%s # %s\n" % (rec_data, rec_str)
 	return s
 
-def derive_milenage_opc(ki_hex, op_hex):
+def derive_milenage_opc(ki_hex:Hexstr, op_hex:Hexstr) -> Hexstr:
 	"""
 	Run the milenage algorithm to calculate OPC from Ki and OP
 	"""
@@ -251,7 +285,7 @@ def derive_milenage_opc(ki_hex, op_hex):
 	opc_bytes = aes.encrypt(op_bytes)
 	return b2h(strxor(opc_bytes, op_bytes))
 
-def calculate_luhn(cc):
+def calculate_luhn(cc) -> int:
 	"""
 	Calculate Luhn checksum used in e.g. ICCID and IMEI
 	"""
@@ -259,7 +293,7 @@ def calculate_luhn(cc):
 	check_digit = 10 - sum(num[-2::-2] + [sum(divmod(d * 2, 10)) for d in num[::-2]]) % 10
 	return 0 if check_digit == 10 else check_digit
 
-def mcc_from_imsi(imsi):
+def mcc_from_imsi(imsi:str) -> Optional[str]:
 	"""
 	Derive the MCC (Mobile Country Code) from the first three digits of an IMSI
 	"""
@@ -271,7 +305,7 @@ def mcc_from_imsi(imsi):
 	else:
 		return None
 
-def mnc_from_imsi(imsi, long=False):
+def mnc_from_imsi(imsi:str, long:bool=False) -> Optional[str]:
 	"""
 	Derive the MNC (Mobile Country Code) from the 4th to 6th digit of an IMSI
 	"""
@@ -286,7 +320,7 @@ def mnc_from_imsi(imsi, long=False):
 	else:
 		return None
 
-def derive_mcc(digit1, digit2, digit3):
+def derive_mcc(digit1:int, digit2:int, digit3:int) -> int:
 	"""
 	Derive decimal representation of the MCC (Mobile Country Code)
 	from three given digits.
@@ -303,7 +337,7 @@ def derive_mcc(digit1, digit2, digit3):
 
 	return mcc
 
-def derive_mnc(digit1, digit2, digit3=0x0f):
+def derive_mnc(digit1:int, digit2:int, digit3:int=0x0f) -> int:
 	"""
 	Derive decimal representation of the MNC (Mobile Network Code)
 	from two or (optionally) three given digits.
@@ -323,7 +357,7 @@ def derive_mnc(digit1, digit2, digit3=0x0f):
 
 	return mnc
 
-def dec_msisdn(ef_msisdn):
+def dec_msisdn(ef_msisdn:Hexstr) -> Optional[Tuple[int,int,Optional[str]]]:
 	"""
 	Decode MSISDN from EF.MSISDN or EF.ADN (same structure).
 	See 3GPP TS 31.102, section 4.2.26 and 4.4.2.3.
@@ -364,7 +398,7 @@ def dec_msisdn(ef_msisdn):
 
 	return (npi, ton, msisdn)
 
-def enc_msisdn(msisdn, npi=0x01, ton=0x03):
+def enc_msisdn(msisdn:str, npi:int=0x01, ton:int=0x03) -> Hexstr:
 	"""
 	Encode MSISDN as LHV so it can be stored to EF.MSISDN.
 	See 3GPP TS 31.102, section 4.2.26 and 4.4.2.3.
@@ -390,7 +424,7 @@ def enc_msisdn(msisdn, npi=0x01, ton=0x03):
 
 	return ('%02x' % bcd_len) + ('%02x' % npi_ton) + bcd
 
-def dec_st(st, table="sim"):
+def dec_st(st, table="sim") -> str:
 	"""
 	Parses the EF S/U/IST and prints the list of available services in EF S/U/IST
 	"""
@@ -578,7 +612,7 @@ def enc_addr_tlv(addr, addr_type='00'):
 
 	return s
 
-def is_hex(string, minlen=2, maxlen=None) -> bool:
+def is_hex(string:str, minlen:int=2, maxlen:Optional[int]=None) -> bool:
 	"""
 	Check if a string is a valid hexstring
 	"""
@@ -600,11 +634,11 @@ def is_hex(string, minlen=2, maxlen=None) -> bool:
 	except:
 		return False
 
-def sanitize_pin_adm(pin_adm, pin_adm_hex = None):
+def sanitize_pin_adm(pin_adm, pin_adm_hex = None) -> Hexstr:
 	"""
 	The ADM pin can be supplied either in its hexadecimal form or as
 	ascii string. This function checks the supplied opts parameter and
-	returns the pin_adm as hex encoded string, regardles in which form
+	returns the pin_adm as hex encoded string, regardless in which form
 	it was originally supplied by the user
 	"""
 
@@ -628,33 +662,6 @@ def sanitize_pin_adm(pin_adm, pin_adm_hex = None):
 			raise ValueError("PIN-ADM needs to be exactly 16 digits (hex encoded)")
 
 	return pin_adm
-
-def init_reader(opts):
-	"""
-	Init card reader driver
-	"""
-	try:
-		if opts.pcsc_dev is not None:
-			print("Using PC/SC reader interface")
-			from pySim.transport.pcsc import PcscSimLink
-			sl = PcscSimLink(opts.pcsc_dev)
-		elif opts.osmocon_sock is not None:
-			print("Using Calypso-based (OsmocomBB) reader interface")
-			from pySim.transport.calypso import CalypsoSimLink
-			sl = CalypsoSimLink(sock_path=opts.osmocon_sock)
-		elif opts.modem_dev is not None:
-			print("Using modem for Generic SIM Access (3GPP TS 27.007)")
-			from pySim.transport.modem_atcmd import ModemATCommandLink
-			sl = ModemATCommandLink(device=opts.modem_dev, baudrate=opts.modem_baud)
-		else: # Serial reader is default
-			print("Using serial reader interface")
-			from pySim.transport.serial import SerialSimLink
-			sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate)
-		return sl
-	except Exception as e:
-		print("Card reader initialization failed with exception:\n" + str(e))
-		return None
-
 
 def enc_ePDGSelection(hexstr, mcc, mnc, epdg_priority='0001', epdg_fqdn_format='00'):
 	"""
@@ -788,7 +795,7 @@ def calculate_checksum_xor(bytelist):
 		checksum ^= b
 	return checksum
 
-def sw_match(sw, pattern):
+def sw_match(sw:str, pattern:str) -> bool:
 	"""Match given SW against given pattern."""
 	# Create a masked version of the returned status word
 	sw_lower = sw.lower()
@@ -803,8 +810,18 @@ def sw_match(sw, pattern):
 	# Compare the masked version against the pattern
 	return sw_masked == pattern
 
-def tabulate_str_list(str_list, width = 79, hspace = 2, lspace = 1, align_left = True):
-	"""Pretty print a list of strings into a tabulated form"""
+def tabulate_str_list(str_list, width:int = 79, hspace:int = 2, lspace:int = 1,
+					  align_left:bool = True) -> str:
+	"""Pretty print a list of strings into a tabulated form.
+
+	Args:
+		width : total width in characters per line
+		space : horizontal space between cells
+		lspace : number of spaces before row
+		align_lef : Align text to the left side
+	Returns:
+		multi-line string containing formatted table
+	"""
 	if str_list == None:
 		return ""
 	if len(str_list) <= 0:
@@ -824,3 +841,10 @@ def tabulate_str_list(str_list, width = 79, hspace = 2, lspace = 1, align_left =
 		format_str_row = (" " * lspace) + format_str_row
 		table.append(format_str_row % tuple(str_list_row))
 	return '\n'.join(table)
+
+class JsonEncoder(json.JSONEncoder):
+    """Extend the standard library JSONEncoder with support for more types."""
+    def default(self, o):
+        if isinstance(o, BytesIO) or isinstance(o, bytes) or isinstance(o, bytearray):
+            return b2h(o)
+        return json.JSONEncoder.default(self, o)

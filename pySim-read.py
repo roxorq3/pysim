@@ -28,14 +28,15 @@ import os
 import random
 import re
 import sys
-from pySim.ts_51_011 import EF, DF, EF_SST_map, EF_AD_mode_map
+from pySim.ts_51_011 import EF, DF, EF_SST_map, EF_AD
 from pySim.ts_31_102 import EF_UST_map, EF_USIM_ADF_map
 from pySim.ts_31_103 import EF_IST_map, EF_ISIM_ADF_map
 
 from pySim.commands import SimCardCommands
+from pySim.transport import init_reader
 from pySim.cards import card_detect, Card, UsimCard, IsimCard
 from pySim.utils import h2b, swap_nibbles, rpad, dec_imsi, dec_iccid, dec_msisdn
-from pySim.utils import format_xplmn_w_act, dec_spn, dec_st, init_reader, dec_addr_tlv
+from pySim.utils import format_xplmn_w_act, dec_spn, dec_st, dec_addr_tlv
 from pySim.utils import h2s, format_ePDGSelection
 
 def parse_options():
@@ -229,11 +230,10 @@ if __name__ == '__main__':
 	(res, sw) = card.read_binary('AD')
 	if sw == '9000':
 		print("Administrative data: %s" % (res,))
-		if res[:2] in EF_AD_mode_map:
-			print("\tMS operation mode: %s" % (EF_AD_mode_map[res[:2]],))
-		else:
-			print("\tMS operation mode: (unknown 0x%s)" % (res[:2],))
-		if int(res[4:6], 16) & 0x01:
+		ad = EF_AD()
+		decoded_data = ad.decode_hex(res)
+		print("\tMS operation mode: %s" % decoded_data['ms_operation_mode'])
+		if decoded_data['ofm']:
 			print("\tCiphering Indicator: enabled")
 		else:
 			print("\tCiphering Indicator: disabled")
@@ -251,7 +251,8 @@ if __name__ == '__main__':
 
 	# Check whether we have th AID of USIM, if so select it by its AID
 	# EF.UST - File Id in ADF USIM : 6f38
-	if '9000' == card.select_adf_by_aid():
+	data, sw = card.select_adf_by_aid(adf="usim")
+	if sw == '9000':
 		# Select USIM profile
 		usim_card = UsimCard(scc)
 
@@ -300,7 +301,8 @@ if __name__ == '__main__':
 			print("ePDGSelection: Can't read file -- " + str(e))
 
 	# Select ISIM application by its AID
-	if '9000' == card.select_adf_by_aid(adf="isim"):
+	data, sw = card.select_adf_by_aid(adf="isim")
+	if sw == '9000':
 		# Select USIM profile
 		isim_card = IsimCard(scc)
 
@@ -352,7 +354,8 @@ if __name__ == '__main__':
 
 	# Check whether we have th AID of ISIM, if so select it by its AID
 	# EF.IST - File Id in ADF ISIM : 6f07
-	if '9000' == card.select_adf_by_aid(adf="isim"):
+	data, sw = card.select_adf_by_aid(adf="isim")
+	if sw == '9000':
 		# EF.IST
 		(res, sw) = card.read_binary('6f07')
 		if sw == '9000':

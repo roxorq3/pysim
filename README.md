@@ -36,8 +36,9 @@ pysim requires:
 
 - pyscard
 - serial
-- pytlv (for specific card types)
-- cmd2 (for pySim-shell.py)
+- pytlv
+- cmd2
+- jsonpath-ng
 
 Example for Debian:
 
@@ -68,8 +69,17 @@ Contributing
 Our coding standards are described at
 <https://osmocom.org/projects/cellular-infrastructure/wiki/Coding_standards>
 
-We are currently accepting patches by e-mail to the above-mentioned
-mailing list.
+We are using a gerrit-based patch review process explained at
+<https://osmocom.org/projects/cellular-infrastructure/wiki/Gerrit>
+
+
+Manual
+------
+p
+Please see the sphinx based documentation in the 'docs' sub-directory
+of the source.  A PDF rendering of the user manual is available from
+<https://ftp.osmocom.org/docs/latest/osmosmlc-usermanual.pdf>
+
 
 Usage
 -----

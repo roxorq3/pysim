@@ -4,11 +4,15 @@
 """
 
 import logging
+from typing import Optional
+
 from pySim.exceptions import *
-from pySim.utils import sw_match
+from pySim.construct import filter_dict
+from pySim.utils import sw_match, b2h, h2b, i2h
 
 #
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
+# Copyright (C) 2021 Harald Welte <laforge@osmocom.org>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -24,52 +28,78 @@ from pySim.utils import sw_match
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+class ApduTracer:
+	def trace_command(self, cmd):
+		pass
+
+	def trace_response(self, cmd, sw, resp):
+		pass
+
+
 class LinkBase(object):
+	"""Base class for link/transport to card."""
 
-	def wait_for_card(self, timeout=None, newcardonly=False):
-		"""wait_for_card(): Wait for a card and connect to it
+	def __init__(self, sw_interpreter=None, apdu_tracer=None):
+		self.sw_interpreter = sw_interpreter
+		self.apdu_tracer = apdu_tracer
 
-		   timeout     : Maximum wait time (None=no timeout)
-		   newcardonly : Should we wait for a new card, or an already
-				 inserted one ?
+	def set_sw_interpreter(self, interp):
+		"""Set an (optional) status word interpreter."""
+		self.sw_interpreter = interp
+
+	def wait_for_card(self, timeout:int=None, newcardonly:bool=False):
+		"""Wait for a card and connect to it
+
+		Args:
+		   timeout : Maximum wait time in seconds (None=no timeout)
+		   newcardonly : Should we wait for a new card, or an already inserted one ?
 		"""
 		pass
 
 	def connect(self):
-		"""connect(): Connect to a card immediately
+		"""Connect to a card immediately
 		"""
 		pass
 
 	def disconnect(self):
-		"""disconnect(): Disconnect from card
+		"""Disconnect from card
 		"""
 		pass
 
 	def reset_card(self):
-		"""reset_card(): Resets the card (power down/up)
+		"""Resets the card (power down/up)
 		"""
 		pass
 
-	def send_apdu_raw(self, pdu):
-		"""send_apdu_raw(pdu): Sends an APDU with minimal processing
+	def send_apdu_raw(self, pdu:str):
+		"""Sends an APDU with minimal processing
 
-		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
-		   return : tuple(data, sw), where
-			    data : string (in hex) of returned data (ex. "074F4EFFFF")
-			    sw   : string (in hex) of status word (ex. "9000")
+		Args:
+		   pdu : string of hexadecimal characters (ex. "A0A40000023F00")
+		Returns:
+		   tuple(data, sw), where
+				data : string (in hex) of returned data (ex. "074F4EFFFF")
+				sw   : string (in hex) of status word (ex. "9000")
 		"""
-		return self.send_apdu_raw(pdu)
+		if self.apdu_tracer:
+			self.apdu_tracer.trace_command(pdu)
+		(data, sw) = self._send_apdu_raw(pdu)
+		if self.apdu_tracer:
+			self.apdu_tracer.trace_response(pdu, sw, data)
+		return (data, sw)
 
 	def send_apdu_failsafe(self, pdu, retry_attempts = 5):
-		"""send_apdu_failsafe(pdu): Sends an APDU with minimal processing and retries on error
+		"""Sends an APDU and auto fetch response data
 
-		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
-		   return : tuple(data, sw), where
-			    data : string (in hex) of returned data (ex. "074F4EFFFF")
-			    sw   : string (in hex) of status word (ex. "9000")
+		Args:
+		   pdu : string of hexadecimal characters (ex. "A0A40000023F00")
+		Returns:
+		   tuple(data, sw), where
+				data : string (in hex) of returned data (ex. "074F4EFFFF")
+				sw   : string (in hex) of status word (ex. "9000")
 		"""
 		try:
-			data, sw = self.send_apdu_raw(pdu)
+			data, sw = self.send_apdu_raw(pdu, retry_attempts)
 			return data, sw
 		except Exception as e1:
 			if retry_attempts > 0:
@@ -98,18 +128,92 @@ class LinkBase(object):
 		return data, sw
 
 	def send_apdu_checksw(self, pdu, sw="9000"):
-		"""send_apdu_checksw(pdu,sw): Sends an APDU and check returned SW
+		"""Sends an APDU and check returned SW
 
-		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
-		   sw     : string of 4 hexadecimal characters (ex. "9000"). The
-			    user may mask out certain digits using a '?' to add some
-			    ambiguity if needed.
-		   return : tuple(data, sw), where
-			    data : string (in hex) of returned data (ex. "074F4EFFFF")
-			    sw   : string (in hex) of status word (ex. "9000")
+		Args:
+		   pdu : string of hexadecimal characters (ex. "A0A40000023F00")
+		   sw : string of 4 hexadecimal characters (ex. "9000"). The user may mask out certain
+				digits using a '?' to add some ambiguity if needed.
+		Returns:
+			tuple(data, sw), where
+				data : string (in hex) of returned data (ex. "074F4EFFFF")
+				sw   : string (in hex) of status word (ex. "9000")
 		"""
 		rv = self.send_apdu(pdu)
 
 		if not sw_match(rv[1], sw):
-			raise SwMatchError(rv[1], sw.lower())
+			raise SwMatchError(rv[1], sw.lower(), self.sw_interpreter)
 		return rv
+
+	def send_apdu_constr(self, cla, ins, p1, p2, cmd_constr, cmd_data, resp_constr):
+		"""Build and sends an APDU using a 'construct' definition; parses response.
+
+		Args:
+			cla : string (in hex) ISO 7816 class byte
+			ins : string (in hex) ISO 7816 instruction byte
+			p1 : string (in hex) ISO 7116 Parameter 1 byte
+			p2 : string (in hex) ISO 7116 Parameter 2 byte
+			cmd_cosntr : defining how to generate binary APDU command data
+			cmd_data : command data passed to cmd_constr
+			resp_cosntr : defining how to decode  binary APDU response data
+		Returns:
+			Tuple of (decoded_data, sw)
+		"""
+		cmd = cmd_constr.build(cmd_data) if cmd_data else ''
+		p3 = i2h([len(cmd)])
+		pdu = ''.join([cla, ins, p1, p2, p3, b2h(cmd)])
+		(data, sw) = self.send_apdu(pdu)
+		if data:
+			# filter the resulting dict to avoid '_io' members inside
+			rsp = filter_dict(resp_constr.parse(h2b(data)))
+		else:
+			rsp = None
+		return (rsp, sw)
+
+	def send_apdu_constr_checksw(self, cla, ins, p1, p2, cmd_constr, cmd_data, resp_constr,
+								 sw_exp="9000"):
+		"""Build and sends an APDU using a 'construct' definition; parses response.
+
+		Args:
+			cla : string (in hex) ISO 7816 class byte
+			ins : string (in hex) ISO 7816 instruction byte
+			p1 : string (in hex) ISO 7116 Parameter 1 byte
+			p2 : string (in hex) ISO 7116 Parameter 2 byte
+			cmd_cosntr : defining how to generate binary APDU command data
+			cmd_data : command data passed to cmd_constr
+			resp_cosntr : defining how to decode  binary APDU response data
+			exp_sw : string (in hex) of status word (ex. "9000")
+		Returns:
+			Tuple of (decoded_data, sw)
+		"""
+		(rsp, sw) = self.send_apdu_constr(cla, ins, p1, p2, cmd_constr, cmd_data, resp_constr)
+		if not sw_match(sw, sw_exp):
+			raise SwMatchError(sw, sw_exp.lower(), self.sw_interpreter)
+		return (rsp, sw)
+
+def init_reader(opts, **kwargs) -> Optional[LinkBase]:
+	"""
+	Init card reader driver
+	"""
+	sl = None # type : :Optional[LinkBase]
+	try:
+		if opts.pcsc_dev is not None:
+			print("Using PC/SC reader interface")
+			from pySim.transport.pcsc import PcscSimLink
+			sl = PcscSimLink(opts.pcsc_dev, **kwargs)
+		elif opts.osmocon_sock is not None:
+			print("Using Calypso-based (OsmocomBB) reader interface")
+			from pySim.transport.calypso import CalypsoSimLink
+			sl = CalypsoSimLink(sock_path=opts.osmocon_sock, **kwargs)
+		elif opts.modem_dev is not None:
+			print("Using modem for Generic SIM Access (3GPP TS 27.007)")
+			from pySim.transport.modem_atcmd import ModemATCommandLink
+			sl = ModemATCommandLink(device=opts.modem_dev, baudrate=opts.modem_baud, **kwargs)
+		else: # Serial reader is default
+			print("Using serial reader interface")
+			from pySim.transport.serial import SerialSimLink
+			sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate, **kwargs)
+		return sl
+	except Exception as e:
+		print("Card reader initialization failed with exception:\n" + str(e))
+		return None

@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
 
-""" pySim: Transport Link for 3GPP TS 27.007 compliant modems
-"""
-
 # Copyright (C) 2020 Vadim Yanitskiy <axilirator@gmail.com>
 #
 # This program is free software: you can redistribute it and/or modify
@@ -31,7 +28,9 @@ from pySim.exceptions import *
 # log.root.setLevel(log.DEBUG)
 
 class ModemATCommandLink(LinkBase):
-	def __init__(self, device='/dev/ttyUSB0', baudrate=115200):
+	"""Transport Link for 3GPP TS 27.007 compliant modems."""
+	def __init__(self, device:str='/dev/ttyUSB0', baudrate:int=115200, **kwargs):
+		super().__init__(**kwargs)
 		self._sl = serial.Serial(device, baudrate, timeout=5)
 		self._device = device
 		self._atr = None
@@ -99,7 +98,7 @@ class ModemATCommandLink(LinkBase):
 	def wait_for_card(self, timeout=None, newcardonly=False):
 		pass # Nothing to do really ...
 
-	def send_apdu_raw(self, pdu):
+	def _send_apdu_raw(self, pdu):
 		# Prepare the command as described in 8.17
 		cmd = 'AT+CSIM=%d,\"%s\"' % (len(pdu), pdu)
 

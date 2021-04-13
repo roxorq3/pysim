@@ -22,7 +22,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from pySim.ts_51_011 import EF, DF
+from pySim.ts_51_011 import EF, DF, EF_AD
 from pySim.ts_31_102 import EF_USIM_ADF_map
 from pySim.ts_31_103 import EF_ISIM_ADF_map
 from pySim.utils import *
@@ -76,7 +76,7 @@ class Card(object):
 		return sw
 
 	def update_acc(self, acc):
-		data, sw = self._scc.update_binary(EF['ACC'], lpad(acc, 4))
+		data, sw = self._scc.update_binary(EF['ACC'], lpad(acc, 4, c='0'))
 		return sw
 
 	def read_hplmn_act(self):
@@ -94,7 +94,7 @@ class Card(object):
 		in ETSI TS 151 011 for the details of the access_tech field coding.
 		Some common values:
 		access_tech = '0080' # Only GSM is selected
-		access_tech = 'FFFF' # All technologues selected, even Reserved for Future Use ones
+		access_tech = 'FFFF' # All technologies selected, even Reserved for Future Use ones
 		"""
 		# get size and write EF.HPLMNwAcT
 		data = self._scc.read_binary(EF['HPLMNwAcT'], length=None, offset=0)
@@ -153,22 +153,50 @@ class Card(object):
 		data, sw = self._scc.update_record(EF['SMSP'], 1, rpad(smsp, 84))
 		return sw
 
-	def update_ad(self, mnc):
-		#See also: 3GPP TS 31.102, chapter 4.2.18
-		mnclen = len(str(mnc))
-		if mnclen == 1:
-			mnclen = 2
-		if mnclen > 3:
-			raise RuntimeError('unable to calculate proper mnclen')
+	def update_ad(self, mnc=None, opmode=None, ofm=None):
+		"""
+		Update Administrative Data (AD)
 
-		data, sw = self._scc.read_binary(EF['AD'], length=None, offset=0)
+		See Sec. "4.2.18 EF_AD (Administrative Data)"
+		in 3GPP TS 31.102 for the details of the EF_AD contents.
 
-		# Reset contents to EF.AD in case the file is uninintalized
-		if data.lower() == "ffffffff":
-			data = "00000000"
+		Set any parameter to None to keep old value(s) on card.
 
-		content = data[0:6] + "%02X" % mnclen
-		data, sw = self._scc.update_binary(EF['AD'], content)
+		Parameters:
+			mnc (str): MNC of IMSI
+			opmode (Hex-str, 1 Byte): MS Operation Mode
+			ofm (Hex-str, 1 Byte): Operational Feature Monitor (OFM) aka Ciphering Indicator
+
+		Returns:
+			str: Return code of write operation
+		"""
+
+		ad = EF_AD()
+
+		# read from card
+		raw_hex_data, sw = self._scc.read_binary(EF['AD'], length=None, offset=0)
+		abstract_data = ad.decode_hex(raw_hex_data)
+
+		# perform updates
+		if mnc and abstract_data['extensions']:
+			mnclen = len(str(mnc))
+			if mnclen == 1:
+				mnclen = 2
+			if mnclen > 3:
+				raise RuntimeError('invalid length of mnc "{}"'.format(mnc))
+			abstract_data['extensions']['mnc_len'] = mnclen
+		if opmode:
+			opmode_num = int(opmode, 16)
+			if opmode_num in [int(v) for v in EF_AD.OP_MODE]:
+				abstract_data['ms_operation_mode'] = opmode_num
+			else:
+				raise RuntimeError('invalid opmode "{}"'.format(opmode))
+		if ofm:
+			abstract_data['ofm'] = bool(int(ofm, 16))
+
+		# write to card
+		raw_hex_data = ad.encode_hex(abstract_data)
+		data, sw = self._scc.update_binary(EF['AD'], raw_hex_data)
 		return sw
 
 	def read_spn(self):
@@ -224,21 +252,21 @@ class Card(object):
 
 	# Select ADF.U/ISIM in the Card using its full AID
 	def select_adf_by_aid(self, adf="usim"):
-		# Check for valid ADF name
-		if adf not in ["usim", "isim"]:
-			return None
-
-		# First (known) halves of the U/ISIM AID
-		aid_map = {}
-		aid_map["usim"] = "a0000000871002"
-		aid_map["isim"] = "a0000000871004"
-
-		for aid in self._aids:
-			if aid_map[adf] in aid:
-				(res, sw) = self._scc.select_adf(aid)
-				return sw
-
-		return None
+		# Find full AID by partial AID:
+		if is_hex(adf):
+			for aid in self._aids:
+				if len(aid) >= len(adf) and adf == aid[0:len(adf)]:
+					return self._scc.select_adf(aid)
+		# Find full AID by application name:
+		elif adf in ["usim", "isim"]:
+			# First (known) halves of the U/ISIM AID
+			aid_map = {}
+			aid_map["usim"] = "a0000000871002"
+			aid_map["isim"] = "a0000000871004"
+			for aid in self._aids:
+				if aid_map[adf] in aid:
+					return self._scc.select_adf(aid)
+		return (None, None)
 
 	# Erase the contents of a file
 	def erase_binary(self, ef):
@@ -446,7 +474,7 @@ class _MagicSimBase(Card):
 	each possible provider uses a specific record number in each EF. The
 	indexes used are ( where N is the number of providers supported ) :
 	 - [2 .. N+1] for the operator name
-	 - [1 .. N] for the programable EFs
+	 - [1 .. N] for the programmable EFs
 
 	* 3f00/7f4d/8f0c : Operator Name
 
@@ -588,7 +616,7 @@ class MagicSim(_MagicSimBase):
 class FakeMagicSim(Card):
 	"""
 	Theses cards have a record based EF 3f00/000c that contains the provider
-	informations. See the program method for its format. The records go from
+	information. See the program method for its format. The records go from
 	1 to N.
 	"""
 
@@ -915,8 +943,12 @@ class SysmoUSIMSJS1(UsimCard):
 				print("Programming HPLMNwAcT failed with code %s"%sw)
 
 		# EF.AD
-		if p.get('mcc') and p.get('mnc'):
-			sw = self.update_ad(p['mnc'])
+		if (p.get('mcc') and p.get('mnc')) or p.get('opmode'):
+			if p.get('mcc') and p.get('mnc'):
+				mnc = p['mnc']
+			else:
+				mnc = None
+			sw = self.update_ad(mnc=mnc, opmode=p.get('opmode'))
 			if sw != '9000':
 				print("Programming AD failed with code %s"%sw)
 
@@ -1205,8 +1237,12 @@ class WavemobileSim(UsimCard):
 				print("Programming OPLMNwAcT failed with code %s"%sw)
 
 		# EF.AD
-		if p.get('mcc') and p.get('mnc'):
-			sw = self.update_ad(p['mnc'])
+		if (p.get('mcc') and p.get('mnc')) or p.get('opmode'):
+			if p.get('mcc') and p.get('mnc'):
+				mnc = p['mnc']
+			else:
+				mnc = None
+			sw = self.update_ad(mnc=mnc, opmode=p.get('opmode'))
 			if sw != '9000':
 				print("Programming AD failed with code %s"%sw)
 
@@ -1266,6 +1302,11 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 		# select DF_GSM
 		self._scc.select_path(['7f20'])
 
+		# set Service Provider Name
+		if p.get('name') is not None:
+			content = enc_spn(p['name'], True, True)
+			data, sw = self._scc.update_binary('6F46', rpad(content, 32))
+
 		# write EF.IMSI
 		if p.get('imsi'):
 			self._scc.update_binary('6f07', enc_imsi(p['imsi']))
@@ -1295,8 +1336,12 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 				print("Programming HPLMNwAcT failed with code %s"%sw)
 
 		# EF.AD
-		if p.get('mcc') and p.get('mnc'):
-			sw = self.update_ad(p['mnc'])
+		if (p.get('mcc') and p.get('mnc')) or p.get('opmode'):
+			if p.get('mcc') and p.get('mnc'):
+				mnc = p['mnc']
+			else:
+				mnc = None
+			sw = self.update_ad(mnc=mnc, opmode=p.get('opmode'))
 			if sw != '9000':
 				print("Programming AD failed with code %s"%sw)
 
@@ -1335,7 +1380,8 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 			self._scc.update_binary('6f20', p['opc'], 17)
 
 		# update EF-USIM_AUTH_KEY in ADF.ISIM
-		if '9000' == self.select_adf_by_aid(adf="isim"):
+		data, sw = self.select_adf_by_aid(adf="isim")
+		if sw == '9000':
 			if p.get('ki'):
 				self._scc.update_binary('af20', p['ki'], 1)
 			if p.get('opc'):
@@ -1382,7 +1428,8 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 				if sw != '9000':
 					print("Programming IMPU failed with code %s"%sw)
 
-		if '9000' == self.select_adf_by_aid():
+		data, sw = self.select_adf_by_aid(adf="usim")
+		if sw == '9000':
 			# update EF-USIM_AUTH_KEY in ADF.USIM
 			if p.get('ki'):
 				self._scc.update_binary('af20', p['ki'], 1)

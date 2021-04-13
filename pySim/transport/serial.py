@@ -23,6 +23,7 @@
 
 import time
 import logging
+from typing import Optional
 
 from pySim.exceptions import NoCardError, ProtocolError
 from pySim.transport import LinkBase
@@ -32,7 +33,7 @@ from pySim.utils import h2b, b2h
 
 
 class SerialSimLink(LinkBase):
-	def __init__(self, device='/dev/ttyUSB0', baudrate=9600, rst='-rts'):
+	def __init__(self, device:str='/dev/ttyUSB0', baudrate:int=9600, rst:str='-rts', **kwargs):
 		self._device = device
 		self._baudrate = baudrate
 		self._rst_pin = rst
@@ -263,7 +264,7 @@ class SerialSimLink(LinkBase):
 			logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
 			return self.rx_card_response(le, ins)
 
-	def send_apdu_raw(self, pdu):
+	def _send_apdu_raw(self, pdu):
 		if isinstance(pdu, str):
 			pdu = h2b(pdu)
 
