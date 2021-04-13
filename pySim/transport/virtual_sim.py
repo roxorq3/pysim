@@ -31,170 +31,170 @@ from pySim.utils import h2b, b2h
 
 
 class VirtualSim(threading.Thread):
-    # with this atr max avail speed is same as initial speed --> no pps
-    ATR_SLOW = h2b(
-        "3b 9f 01 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 15")
-    # offer faster baudrate to modem, modem will usually do select fastest rate
-    ATR_OFFER_PPS = h2b(
-        "3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
+	# with this atr max avail speed is same as initial speed --> no pps
+	ATR_SLOW = h2b(
+		"3b 9f 01 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 15")
+	# offer faster baudrate to modem, modem will usually do select fastest rate
+	ATR_OFFER_PPS = h2b(
+		"3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
 
-    def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=60):
-        super(VirtualSim, self).__init__()
-        self.daemon = True
-        self._sl = SerialBase(device, clock, timeout)
-        self._apdu_helper = ApduHelper()
-        self._initialized = False
-        self._wxt_timer = None
-        self._alive = False
-        self._get_response_cache = None
+	def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=60):
+		super(VirtualSim, self).__init__()
+		self.daemon = True
+		self._sl = SerialBase(device, clock, timeout)
+		self._apdu_helper = ApduHelper()
+		self._initialized = False
+		self._wxt_timer = None
+		self._alive = False
+		self._get_response_cache = None
 
-    def __del__(self):
-        self.stop()
-        self.disconnect()
+	def __del__(self):
+		self.stop()
+		self.disconnect()
 
-    def _rx_apdu(self):
-        # receive (cla, ins, p1, p2, p3)
-        apdu = self._sl.rx_bytes(SerialBase.HEADER_LEN)
-        logging.info(f"header: {b2h(apdu)}")
-        cla, ins, p1, p2, p3 = apdu
-        apdu_type = self._apdu_helper.classify_apdu(apdu)
-        ins_name = apdu_type['name']
-        case = apdu_type['case']
-        le = SerialBase.SW_LEN  # per default two SW bytes as expected response
+	def _rx_apdu(self):
+		# receive (cla, ins, p1, p2, p3)
+		apdu = self._sl.rx_bytes(SerialBase.HEADER_LEN)
+		logging.info(f"header: {b2h(apdu)}")
+		cla, ins, p1, p2, p3 = apdu
+		apdu_type = self._apdu_helper.classify_apdu(apdu)
+		ins_name = apdu_type['name']
+		case = apdu_type['case']
+		le = SerialBase.SW_LEN  # per default two SW bytes as expected response
 
-        logging.info(f"{ins_name} -> case {case}")
+		logging.info(f"{ins_name} -> case {case}")
 
-        if case == 1:  # P3 == 0 -> No Lc/Le
-            return apdu, le
-        if case == 2:  # P3 == Le
-            if p3 == 0:
-                le += 256
-            else:
-                le += p3
-            return apdu, le
-        if (case == 3 or  # P3 = Lc
-                case == 4):  # P3 = Lc, Le encoded in SW
-            lc = p3
-            if lc > 0:
-                # send proc byte and recieve rest of command
-                self._sl.tx_bytes(bytes([ins]))
-                data = self._sl.rx_bytes(lc)
-                logging.info(f"data: {b2h(data)}")
-                apdu += data
-            # if case == 4:  case 4 in sim is not allowed --> request seperately
-            #    le += SerialBase.MAX_LENGTH
-            return apdu, le
-        else:
-            logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
-            return apdu, SerialBase.MAX_LENGTH
+		if case == 1:  # P3 == 0 -> No Lc/Le
+			return apdu, le
+		if case == 2:  # P3 == Le
+			if p3 == 0:
+				le += 256
+			else:
+				le += p3
+			return apdu, le
+		if (case == 3 or  # P3 = Lc
+				case == 4):  # P3 = Lc, Le encoded in SW
+			lc = p3
+			if lc > 0:
+				# send proc byte and recieve rest of command
+				self._sl.tx_bytes(bytes([ins]))
+				data = self._sl.rx_bytes(lc)
+				logging.info(f"data: {b2h(data)}")
+				apdu += data
+			# if case == 4:  case 4 in sim is not allowed --> request seperately
+			#    le += SerialBase.MAX_LENGTH
+			return apdu, le
+		else:
+			logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
+			return apdu, SerialBase.MAX_LENGTH
 
-    def _send_wxt(self):
-        self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
-        logging.info("half waiting time exceeded --> wxt sent")
+	def _send_wxt(self):
+		self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
+		logging.info("half waiting time exceeded --> wxt sent")
 
-    def _get_wxt_timeout(self):
-        return self._sl.get_waiting_time()/2
+	def _get_wxt_timeout(self):
+		return self._sl.get_waiting_time()/2
 
-    def _create_wxt_thread(self):
-        stop = threading.Event()
+	def _create_wxt_thread(self):
+		stop = threading.Event()
 
-        def loop():
-            while not stop.wait(self._get_wxt_timeout()):
-                self._send_wxt()
-        threading.Thread(target=loop, daemon=True).start()
-        return stop
+		def loop():
+			while not stop.wait(self._get_wxt_timeout()):
+				self._send_wxt()
+		threading.Thread(target=loop, daemon=True).start()
+		return stop
 
-    def _handle_apdu_with_wxt(self, apdu, expected_len):
-        stop_wxt_thread = self._create_wxt_thread()
-        try:
-            logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
-            response = self.handle_apdu_with_get_response_fix(apdu, expected_len)
-            # modem expects additional instruction byte in response for apdu case 2
-            if len(response) > 2:
-                response = bytes([apdu[1]]) + response
-            logging.info(f"recieved apdu response: {b2h(response)}")
-            return response
-        except:
-            logging.error("handle_apdu_callback raised exception :X")
-            raise
-        finally:
-            stop_wxt_thread.set()  # disalbe wxt thread by setting event
+	def _handle_apdu_with_wxt(self, apdu, expected_len):
+		stop_wxt_thread = self._create_wxt_thread()
+		try:
+			logging.info(f"forward apdu[{len(apdu)}]: {b2h(apdu)}")
+			response = self.handle_apdu_with_get_response_fix(apdu, expected_len)
+			# modem expects additional instruction byte in response for apdu case 2
+			if len(response) > 2:
+				response = bytes([apdu[1]]) + response
+			logging.info(f"recieved apdu response: {b2h(response)}")
+			return response
+		except:
+			logging.error("handle_apdu_callback raised exception :X")
+			raise
+		finally:
+			stop_wxt_thread.set()  # disalbe wxt thread by setting event
 
-    def _run_apdu_loop(self):
-        try:
-            while self._alive:
-                apdu, le = self._rx_apdu()
-                response = self._handle_apdu_with_wxt(apdu, le)
-                self._sl.tx_bytes(response)
-        except Exception as e:
-            if not self._alive:
-                logging.info("thread stopped, leaving apdu loop")
-            else:
-                logging.info(e)
-                logging.info("something went wrong -> leaving apdu loop")
-        finally:
-            self._alive = False
+	def _run_apdu_loop(self):
+		try:
+			while self._alive:
+				apdu, le = self._rx_apdu()
+				response = self._handle_apdu_with_wxt(apdu, le)
+				self._sl.tx_bytes(response)
+		except Exception as e:
+			if not self._alive:
+				logging.info("thread stopped, leaving apdu loop")
+			else:
+				logging.info(e)
+				logging.info("something went wrong -> leaving apdu loop")
+		finally:
+			self._alive = False
 
-    def run(self):
-        if not self._sl.get_atr():
-            raise NotInitializedError(
-                "ATR not received yet --> cannot start apdu loop!")
-        self._alive = True
-        self._run_apdu_loop()
-        return
+	def run(self):
+		if not self._sl.get_atr():
+			raise NotInitializedError(
+				"ATR not received yet --> cannot start apdu loop!")
+		self._alive = True
+		self._run_apdu_loop()
+		return
 
-    def stop(self):
-        self._alive = False
-        if hasattr(self._sl, 'cancel_read'):
-            self._sl.cancel_read()
-        self.join(timeout=5)
+	def stop(self):
+		self._alive = False
+		if hasattr(self._sl, 'cancel_read'):
+			self._sl.cancel_read()
+		self.join(timeout=5)
 
-    def disconnect(self):
-        if (hasattr(self, "_sl")):
-            self._sl.close()
+	def disconnect(self):
+		if (hasattr(self, "_sl")):
+			self._sl.close()
 
-    def send_atr(self, do_pps=True):
-        self._sl.reset_input_buffer()
-        atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
+	def send_atr(self, do_pps=True):
+		self._sl.reset_input_buffer()
+		atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
 
-        self._sl.tx_bytes(atr)
-        self._sl.atr_recieved(atr)
-        if do_pps:
-            pps_request = self._sl.rx_bytes(SerialBase.PPS_LEN)
-            self._sl.tx_bytes(pps_request)
-            self._sl.pps_sent(pps_request)
-        self._initialized = True
+		self._sl.tx_bytes(atr)
+		self._sl.atr_recieved(atr)
+		if do_pps:
+			pps_request = self._sl.rx_bytes(SerialBase.PPS_LEN)
+			self._sl.tx_bytes(pps_request)
+			self._sl.pps_sent(pps_request)
+		self._initialized = True
 
-    def handle_apdu_with_get_response_fix(self, apdu, expected_len):
-        """
-        In the T = 0 protocol, it is not possible to send a block of data to the smart card and receive
-        a block of data from the smart cardwithin a single command–response cycle. 5 This protocol
-        thus does not support case 4 commands, although they are frequently used. It is thus necessary
-        to use a work-around for the T = 0 protocol. This operates in a simple manner. The case 4
-        command is ﬁrst sent to the card, and if it is successful, a special return code is sent to the
-        terminal to advise the terminal that the command has generated data that are waiting to be
-        retrieved. The terminal then sends a GET RESPONSE command to the smart card and receives
-        the data in the response. This completes the command–response cycle for the ﬁrst command.
-        As long as no command other than GET RESPONSE is sent to the card, the response data can
-        be requested multiple times.
-        """
-        if self._get_response_cache is not None:
-            if apdu[1] == 0xC0: #get response command
-                logging.info(f"return cached response")
-                return self._get_response_cache
-        self._get_response_cache = None
-        response = self.handle_apdu(apdu)
-        response_len = len(response)
+	def handle_apdu_with_get_response_fix(self, apdu, expected_len):
+		"""
+		In the T = 0 protocol, it is not possible to send a block of data to the smart card and receive
+		a block of data from the smart cardwithin a single command–response cycle. 5 This protocol
+		thus does not support case 4 commands, although they are frequently used. It is thus necessary
+		to use a work-around for the T = 0 protocol. This operates in a simple manner. The case 4
+		command is ﬁrst sent to the card, and if it is successful, a special return code is sent to the
+		terminal to advise the terminal that the command has generated data that are waiting to be
+		retrieved. The terminal then sends a GET RESPONSE command to the smart card and receives
+		the data in the response. This completes the command–response cycle for the ﬁrst command.
+		As long as no command other than GET RESPONSE is sent to the card, the response data can
+		be requested multiple times.
+		"""
+		if self._get_response_cache is not None:
+			if apdu[1] == 0xC0: #get response command
+				logging.info(f"return cached response")
+				return self._get_response_cache
+		self._get_response_cache = None
+		response = self.handle_apdu(apdu)
+		response_len = len(response)
 
-        if response_len > expected_len : # apdu case 4
-            self._get_response_cache = response
-            ret_sw = bytearray(2)
-            ret_sw[0] = 0x61
-            ret_sw[1] = len(response) - SerialBase.SW_LEN
-            logging.info(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
-            return ret_sw
-        return response
+		if response_len > expected_len : # apdu case 4
+			self._get_response_cache = response
+			ret_sw = bytearray(2)
+			ret_sw[0] = 0x61
+			ret_sw[1] = len(response) - SerialBase.SW_LEN
+			logging.info(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
+			return ret_sw
+		return response
 
-    def handle_apdu(self, apdu):
-        # virtual, needs to be implemented
-        raise NotImplementedError()
+	def handle_apdu(self, apdu):
+		# virtual, needs to be implemented
+		raise NotImplementedError()

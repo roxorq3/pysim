@@ -38,7 +38,7 @@ def i2h(s):
 
 def h2s(s):
 	return ''.join([chr((int(x,16)<<4)+int(y,16)) for x,y in zip(s[0::2], s[1::2])
-						      if int(x + y, 16) != 0xff])
+							  if int(x + y, 16) != 0xff])
 
 def s2h(s):
 	b = bytearray()

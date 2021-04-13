@@ -58,7 +58,7 @@ class LinkBase(object):
 			    data : string (in hex) of returned data (ex. "074F4EFFFF")
 			    sw   : string (in hex) of status word (ex. "9000")
 		"""
-		self.send_apdu_raw(pdu)
+		return self.send_apdu_raw(pdu)
 
 	def send_apdu_failsafe(self, pdu, retry_attempts = 5):
 		"""send_apdu_failsafe(pdu): Sends an APDU with minimal processing and retries on error
