@@ -520,7 +520,7 @@ class BluetoothSapSimLink(LinkBase):
 			return param_name, param_value, total_len
 
 
-		def send_apdu_raw(self, pdu):
+		def _send_apdu_raw(self, pdu):
 			if isinstance(pdu, str):
 				pdu = h2b(pdu)
 			self.send_sap_message("TRANSFER_APDU_REQ", [("CommandAPDU", pdu)])
