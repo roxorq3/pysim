@@ -71,6 +71,18 @@ class LinkBase(object):
 		"""
 		pass
 
+	def _send_apdu_raw(self, pdu:str):
+		"""Sends an APDU with minimal processing
+
+		Args:
+		   pdu : string of hexadecimal characters (ex. "A0A40000023F00")
+		Returns:
+		   tuple(data, sw), where
+				data : string (in hex) of returned data (ex. "074F4EFFFF")
+				sw   : string (in hex) of status word (ex. "9000")
+		"""
+		raise NotImplementedError("Please Implement this method")
+
 	def send_apdu_raw(self, pdu:str):
 		"""Sends an APDU with minimal processing
 
@@ -99,11 +111,11 @@ class LinkBase(object):
 				sw   : string (in hex) of status word (ex. "9000")
 		"""
 		try:
-			data, sw = self.send_apdu_raw(pdu, retry_attempts)
+			data, sw = self.send_apdu_raw(pdu)
 			return data, sw
 		except Exception as e1:
 			if retry_attempts > 0:
-				logging.info(f"eception occured when sending apdu {pdu}, retry...")
+				logging.info(f"exception occured while sending apdu {pdu}, retry...")
 				return self.send_apdu_failsafe(pdu, retry_attempts-1)
 			raise
 
