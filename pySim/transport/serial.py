@@ -34,6 +34,7 @@ from pySim.utils import h2b, b2h
 
 class SerialSimLink(LinkBase):
 	def __init__(self, device:str='/dev/ttyUSB0', baudrate:int=9600, rst:str='-rts', **kwargs):
+		super().__init__(**kwargs)
 		self._device = device
 		self._baudrate = baudrate
 		self._rst_pin = rst
