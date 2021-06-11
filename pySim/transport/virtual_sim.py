@@ -24,7 +24,7 @@
 
 import logging
 import threading
-from pySim.exceptions import NotInitializedError
+from pySim.exceptions import NotInitializedError, ProtocolError
 from pySim.transport.serial_base import SerialBase
 from pySim.transport.apdu_helper import ApduHelper
 from pySim.utils import h2b, b2h
@@ -89,8 +89,11 @@ class VirtualSim(threading.Thread):
 			return apdu, SerialBase.MAX_LENGTH
 
 	def _send_wxt(self):
-		self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
-		logging.info("half waiting time exceeded --> wxt sent")
+		try:
+			self._sl.tx_bytes(bytes([SerialBase.WXT_BYTE]))
+			logging.info("half waiting time exceeded --> wxt sent")
+		except ProtocolError as e:	# not sure what to do here...send wxt again, just wait and hope modem recieved the right byte? start over?
+			logging.error("dang, wxt was prolly not sent...")
 
 	def _get_wxt_timeout(self):
 		return self._sl.get_waiting_time()/2
