@@ -10,6 +10,8 @@ from pySim.exceptions import *
 from pySim.construct import filter_dict
 from pySim.utils import sw_match, b2h, h2b, i2h
 
+logger = logging.getLogger(__name__)
+
 #
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
 # Copyright (C) 2021 Harald Welte <laforge@osmocom.org>
@@ -115,8 +117,10 @@ class LinkBase(object):
 			return data, sw
 		except Exception as e1:
 			if retry_attempts > 0:
-				logging.info(f"exception occured while sending apdu {pdu}, retry...")
+				logger.warning(f"exception occured while sending apdu {pdu}, retries left: {retry_attempts}")
 				return self.send_apdu_failsafe(pdu, retry_attempts-1)
+			else:
+				logger.error(f"exception occured while sending apdu {pdu}, no retries left...")
 			raise
 
 	def send_apdu(self, pdu, retry_attempts = 0):

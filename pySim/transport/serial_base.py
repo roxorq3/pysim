@@ -25,6 +25,7 @@ import os.path
 from pySim.exceptions import ProtocolError, NotInitializedError
 from pySim.utils import calculate_checksum_xor, b2h, i2h
 
+logger = logging.getLogger(__name__)
 
 class SerialBase(object):
 	DEFAULT_FI = 0
@@ -117,7 +118,7 @@ class SerialBase(object):
 		serial_baudrate = self._calculate_baudrate()
 		self._set_baudrate(serial_baudrate)
 		self._set_inter_byte_timeout(0.01)
-		logging.info(
+		logger.info(
 			f"update fidi: {self._calculate_f()}/{self._calculate_d()} --> new baudrate: {serial_baudrate}")
 
 	def get_pps_proposal(self):
@@ -137,7 +138,7 @@ class SerialBase(object):
 		self._set_baudrate(self._calculate_baudrate())
 
 	def tx_byte(self, b):
-		logging.debug(f"tx_byte: {b2h(b)}")
+		logger.debug(f"tx_byte: {b2h(b)}")
 		self._sl.write(b)
 		r = self._sl.read()
 		if r != b:  # TX and RX are tied, so we must clear the echo
@@ -147,7 +148,7 @@ class SerialBase(object):
 	def tx_bytes(self, buf):
 		"""This is only safe if it's guaranteed the card won't send any data
 		during the time of tx of the string !!!"""
-		logging.debug(f"tx_bytes [{len(buf)}]: {b2h(buf)}")
+		logger.debug(f"tx_bytes [{len(buf)}]: {b2h(buf)}")
 		self._sl.write(buf)
 		r = self._sl.read(len(buf))
 		if r != buf:    # TX and RX are tied, so we must clear the echo
@@ -159,14 +160,14 @@ class SerialBase(object):
 		# self._sl.timeout = 0 #non blocking mode --> return empty string when there is nothing to read
 		b = self._sl.read()
 		#self._sl.timeout = tmp
-		logging.debug(f"rx_byte: {i2h(b)}")
+		logger.debug(f"rx_byte: {i2h(b)}")
 		return b
 
 	def rx_bytes(self, size=None):
 		if size is None:
 			size = SerialBase.MAX_LENGTH
 		buf = self._sl.read(size)
-		logging.debug(f"rx_bytes [{len(buf)}/{size}]: {b2h(buf)}")
+		logger.debug(f"rx_bytes [{len(buf)}/{size}]: {b2h(buf)}")
 		return buf
 
 	def reset_input_buffer(self):

@@ -31,6 +31,7 @@ from pySim.transport.serial_base import SerialBase
 from pySim.transport.apdu_helper import ApduHelper
 from pySim.utils import h2b, b2h
 
+logger = logging.getLogger(__name__)
 
 class SerialSimLink(LinkBase):
 	def __init__(self, device:str='/dev/ttyUSB0', baudrate:int=9600, rst:str='-rts', **kwargs):
@@ -101,7 +102,7 @@ class SerialSimLink(LinkBase):
 			raise ProtocolError(
 				f"Bad PPS reponse (Expected: {b2h(pps_request)}, got {b2h(pps_response)})")
 		self._sl.pps_sent(pps_request)
-		logging.info(f"PPS: {b2h(pps_response)}")
+		logger.info(f"PPS: {b2h(pps_response)}")
 
 	def get_atr(self):
 		return self._sl.get_atr()
@@ -144,7 +145,7 @@ class SerialSimLink(LinkBase):
 			return 0
 		if ord(b) != 0x3b:
 			return -1
-		logging.debug("TS: 0x%x Direct convention" % ord(b))
+		logger.debug("TS: 0x%x Direct convention" % ord(b))
 
 		while ord(b) == 0x3b:
 			b = self._sl.rx_byte()
@@ -152,26 +153,26 @@ class SerialSimLink(LinkBase):
 		if not b:
 			return -1
 		t0 = ord(b)
-		logging.debug("T0: 0x%x" % t0)
+		logger.debug("T0: 0x%x" % t0)
 		atr = [0x3b, ord(b)]
 
 		for i in range(4):
 			if t0 & (0x10 << i):
 				b = self._sl.rx_byte()
 				atr.append(ord(b))
-				logging.debug("T%si = %x" % (chr(ord('A')+i), ord(b)))
+				logger.debug("T%si = %x" % (chr(ord('A')+i), ord(b)))
 
 		for i in range(0, t0 & 0xf):
 			b = self._sl.rx_byte()
 			atr.append(ord(b))
-			logging.debug("Historical = %x" % ord(b))
+			logger.debug("Historical = %x" % ord(b))
 
 		while True:
 			x = self._sl.rx_byte()
 			if not x:
 				break
 			atr.append(ord(x))
-			logging.debug("Extra: %x" % ord(x))
+			logger.debug("Extra: %x" % ord(x))
 
 		self._sl.atr_recieved(atr)
 
@@ -196,10 +197,10 @@ class SerialSimLink(LinkBase):
 		buf = _sl.rx_bytes(size)
 		while len(buf) > 0:
 			if bytes[0] == wxt:
-				logging.info("Received wxt!")
+				logger.info("Received wxt!")
 				buf = bytes[1:]
 			elif bytes[0] == proc:
-				logging.info("Received proc!")
+				logger.info("Received proc!")
 				buf = bytes[1:]
 			else:
 				break
@@ -215,9 +216,9 @@ class SerialSimLink(LinkBase):
 				# recieve first byte and check if it should be discarded, then recieve the rest
 				b = self._sl.rx_byte()
 				if wxt and wxt in b:
-					logging.info("Received wxt!")
+					logger.info("Received wxt!")
 				elif proc and proc in b:
-					logging.info("Received proc!")
+					logger.info("Received proc!")
 				else:
 					return b + self._sl.rx_bytes(size - len(b))
 					break
@@ -228,7 +229,7 @@ class SerialSimLink(LinkBase):
 		header = apdu[0:5]
 		data = apdu[5:]
 		self._sl.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
-		logging.info(f"header: {b2h(header)}")
+		logger.lebug(f"header: {b2h(header)}")
 		cla, ins, p1, p2, p3 = header
 
 		apdu_type = self._apdu_helper.classify_apdu(header)
@@ -236,7 +237,7 @@ class SerialSimLink(LinkBase):
 		case = apdu_type['case']
 		le = SerialBase.SW_LEN  # per default two SW bytes as expected response
 
-		logging.info(f"{ins_name} -> case {case}")
+		logger.info(f"{ins_name} -> case {case}")
 
 		if case == 1:  # P3 == 0 -> No Lc/Le
 			return self.rx_card_response(le, ins)
@@ -251,18 +252,18 @@ class SerialSimLink(LinkBase):
 			lc = p3
 			proc = self.rx_card_response(1)
 			if proc[0] != ins:
-				#logging.error(f"proc byte {ins} expected but {proc[0]} recieved")
+				#logger.error(f"proc byte {ins} expected but {proc[0]} recieved")
 				# received sw1 instead of proc byte; get sw2 and return
 				return proc + self.rx_card_response(1)
 			if lc > 0 and len(data):
 				# send proc byte and send rest of command
 				self._sl.tx_bytes(data)
-				logging.info(f"data: {b2h(data)}")
+				logger.debug(f"data: {b2h(data)}")
 			#if case == 4: #case 4 not allowed for simcard
 			#    le += SerialBase.MAX_LENGTH
 			return self.rx_card_response(le, ins)
 		else:
-			logging.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
+			logger.error(f"cannot determine case for apdu ({b2h(apdu)}) :|")
 			return self.rx_card_response(le, ins)
 
 	def _send_apdu_raw(self, pdu):

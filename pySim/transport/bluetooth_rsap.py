@@ -29,6 +29,8 @@ from pySim.exceptions import ReaderError, NoCardError, ProtocolError
 from pySim.transport import LinkBase
 from pySim.utils import b2h, h2b, rpad
 
+logger = logging.getLogger(__name__)
+
 
 # thx to osmocom/softsim
 # SAP table 5.16
@@ -309,7 +311,7 @@ class BluetoothSapSimLink(LinkBase):
             connection_status = next(
                 (x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
             if connection_status == 0x00:
-                logging.info("SIM Reset successful")
+                logger.info("SIM Reset successful")
                 return 1
         else:
             self.disconnect()
@@ -341,14 +343,14 @@ class BluetoothSapSimLink(LinkBase):
         connection_status = next(
             (x[1] for x in param_list if x[0] == 'ConnectionStatus'), 0x01)
         if connection_status == 0x00:
-            logging.info("Successfully connected to rSAP server")
+            logger.info("Successfully connected to rSAP server")
             return
         elif connection_status == 0x02:  # invalid max size
             self._max_msg_size = next(
                 (x[1] for x in param_list if x[0] == 'MaxMsgSize'), self._max_msg_size)
             return self.establish_sim_connection(retries)
         else:
-            logging.info(
+            logger.info(
                 "Wait some seconds and make another connection attempt...")
             time.sleep(5)
             return self.establish_sim_connection(retries-1)
@@ -361,23 +363,23 @@ class BluetoothSapSimLink(LinkBase):
         if result_code == 0x00:
             atr = next((x[1] for x in param_list if x[0] == 'ATR'), None)
             self._atr = atr
-            logging.info(f"Recieved ATR from server: {b2h(atr)}")
+            logger.debug(f"Recieved ATR from server: {b2h(atr)}")
 
     def handle_sap_response_generic(self, msg_name, param_list):
         # print stuff
-        logging.info(
+        logger.debug(
             f"Recieved sap message from server: {(msg_name, param_list)}")
         for param in param_list:
             param_name, param_value = param
             if param_name == 'ConnectionStatus':
                 new_status = SAP_CONNECTION_STATUS.get(param_value)
-                logging.info(f"Connection Status: {new_status}")
+                logger.debug(f"Connection Status: {new_status}")
             elif param_name == 'StatusChange':
                 new_status = SAP_STATUS_CHANGE.get(param_value)
-                logging.info(f"SIM Status: {new_status}")
+                logger.debug(f"SIM Status: {new_status}")
             elif param_name == 'ResultCode':
                 response_code = SAP_RESULT_CODE.get(param_value)
-                logging.info(f"ResultCode: {response_code}")
+                logger.debug(f"ResultCode: {response_code}")
 
         # handle some important stuff:
         if msg_name == 'DISCONNECT_IND':
@@ -386,7 +388,7 @@ class BluetoothSapSimLink(LinkBase):
             self.send_sap_message("DISCONNECT_REQ")
         elif msg_name == 'DISCONNECT_RESP':
             self.connected = False
-            logging.info(f"Client disconnected")
+            logger.info(f"Client disconnected")
 
         # if msg_name == 'CONNECT_RESP':
         # elif msg_name == 'DISCONNECT_RESP':
@@ -401,7 +403,7 @@ class BluetoothSapSimLink(LinkBase):
         # elif msg_name == 'ERROR_RESP':
         # elif msg_name == 'SET_TRANSPORT_PROTOCOL_RESP':
         # else:
-        #  logging.error("Unknown message...")
+        #  logger.error("Unknown message...")
 
     def craft_sap_message(self, msg_name, param_list=[]):
         msg_info = next(
