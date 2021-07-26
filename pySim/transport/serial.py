@@ -229,7 +229,7 @@ class SerialSimLink(LinkBase):
 		header = apdu[0:5]
 		data = apdu[5:]
 		self._sl.tx_bytes(header)  # send 5 header bytes (cla, ins, p1, p2, p3)
-		logger.lebug(f"header: {b2h(header)}")
+		logger.debug(f"header: {b2h(header)}")
 		cla, ins, p1, p2, p3 = header
 
 		apdu_type = self._apdu_helper.classify_apdu(header)
