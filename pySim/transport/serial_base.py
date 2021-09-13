@@ -158,7 +158,7 @@ class SerialBase(object):
 	def rx_byte(self):
 		#tmp = self._sl.timeout
 		# self._sl.timeout = 0 #non blocking mode --> return empty string when there is nothing to read
-		b = self._sl.read()
+		b = self._sl.read(1)
 		#self._sl.timeout = tmp
 		logger.debug(f"rx_byte: {i2h(b)}")
 		return b
