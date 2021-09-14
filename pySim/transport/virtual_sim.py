@@ -39,7 +39,7 @@ class VirtualSim(threading.Thread):
 	ATR_OFFER_PPS = h2b(
 		"3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
 
-	def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=6000):
+	def __init__(self, device='/dev/ttyUSB0', clock=3842000, do_pps=True, timeout=6000):
 		super(VirtualSim, self).__init__()
 		self.daemon = True
 		self._sl = SerialBase(device, clock, timeout)
@@ -47,6 +47,7 @@ class VirtualSim(threading.Thread):
 		self._initialized = False
 		self._wxt_timer = None
 		self._alive = False
+		self._restart = True	#try to restart connection (wait for reset) in case of error 
 		self._get_response_cache = None
 
 	def __del__(self):
@@ -126,13 +127,15 @@ class VirtualSim(threading.Thread):
 
 	def _run_apdu_loop(self):
 		try:
+			self._alive = True
 			while self._alive:
 				apdu, le = self._rx_apdu()
 				response = self._handle_apdu_with_wxt(apdu, le)
 				self._sl.tx_bytes(response)
 		except Exception as e:
 			if not self._alive:
-				logger.info("thread stopped, leaving apdu loop")
+				logger.info("thread stop requested, leaving apdu loop")
+				self._restart = False
 			else:
 				logger.error("exc_info", exc_info=True)
 				logger.info("something went wrong -> leaving apdu loop")
@@ -140,11 +143,10 @@ class VirtualSim(threading.Thread):
 			self._alive = False
 
 	def run(self):
-		if not self._sl.get_atr():
-			raise NotInitializedError(
-				"ATR not received yet --> cannot start apdu loop!")
-		self._alive = True
-		self._run_apdu_loop()
+		while(self._restart):
+			self.wait_for_reset()
+			self.send_atr()
+			self._run_apdu_loop()
 		return
 
 	def stop(self):
@@ -202,3 +204,8 @@ class VirtualSim(threading.Thread):
 	def handle_apdu(self, apdu):
 		# virtual, needs to be implemented
 		raise NotImplementedError()
+
+	def wait_for_reset(self):
+		# virtual, needs to be implemented
+		raise NotImplementedError()
+
