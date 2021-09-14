@@ -162,6 +162,7 @@ class VirtualSim(threading.Thread):
 			self._sl.close()
 
 	def send_atr(self, do_pps=True):
+		self._sl.reset_card()
 		self._sl.reset_input_buffer()
 		atr = VirtualSim.ATR_OFFER_PPS if do_pps else VirtualSim.ATR_SLOW
 
