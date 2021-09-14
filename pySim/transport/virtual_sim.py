@@ -39,7 +39,7 @@ class VirtualSim(threading.Thread):
 	ATR_OFFER_PPS = h2b(
 		"3b 9f 96 80 1f c6 80 31 e0 73 fe 21 1b 66 d0 02 21 ab 11 18 03 82")
 
-	def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=6000, do_pps=True):
+	def __init__(self, device='/dev/ttyUSB0', clock=3842000, timeout=600, do_pps=True):
 		threading.Thread.__init__(self) #super(VirtualSim, self).__init__()
 		self.daemon = True
 		self._sl = SerialBase(device, clock, timeout)
