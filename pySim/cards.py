@@ -22,14 +22,37 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from pySim.ts_51_011 import EF, DF, EF_AD
+from typing import Optional, Dict, Tuple
+import abc
+
+from pySim.ts_51_011 import EF, DF, EF_AD, EF_SPN
 from pySim.ts_31_102 import EF_USIM_ADF_map
 from pySim.ts_31_103 import EF_ISIM_ADF_map
 from pySim.utils import *
 from smartcard.util import toBytes
 from pytlv.TLV import *
 
-class Card(object):
+def format_addr(addr:str, addr_type:str) -> str:
+	"""
+	helper function to format an FQDN (addr_type = '00') or IPv4
+	(addr_type = '01') address string into a printable string that
+	contains the hexadecimal representation and the original address
+	string (addr)
+	"""
+	res = ""
+	if addr_type == '00': #FQDN
+		res += "\t%s # %s\n" % (s2h(addr), addr)
+	elif addr_type == '01': #IPv4
+		octets = addr.split(".")
+		addr_hex = ""
+		for o in octets:
+			addr_hex += ("%02x" % int(o))
+		res += "\t%s # %s\n" % (addr_hex, addr)
+	return res
+
+class SimCard(object):
+
+	name = 'SIM'
 
 	def __init__(self, scc):
 		self._scc = scc
@@ -37,7 +60,11 @@ class Card(object):
 		self._aids = []
 
 	def reset(self):
-		self._scc.reset_card()
+		rc = self._scc.reset_card()
+		if rc is 1:
+			return self._scc.get_atr()
+		else:
+			return None
 
 	def erase(self):
 		print("warning: erasing is not supported for specified card type!")
@@ -51,9 +78,7 @@ class Card(object):
 		return True
 
 	def verify_adm(self, key):
-		'''
-		Authenticate with ADM key
-		'''
+		"""Authenticate with ADM key"""
 		(res, sw) = self._scc.verify_chv(self._adm_chv_num, key)
 		return sw
 
@@ -112,10 +137,7 @@ class Card(object):
 			return (None, sw)
 
 	def update_oplmn_act(self, mcc, mnc, access_tech='FFFF'):
-		"""
-		See note in update_hplmn_act()
-		"""
-		# get size and write EF.OPLMNwAcT
+		"""get size and write EF.OPLMNwAcT, See note in update_hplmn_act()"""
 		data = self._scc.read_binary(EF['OPLMNwAcT'], length=None, offset=0)
 		size = len(data[0]) // 2
 		hplmn = enc_plmn(mcc, mnc)
@@ -131,10 +153,7 @@ class Card(object):
 			return (None, sw)
 
 	def update_plmn_act(self, mcc, mnc, access_tech='FFFF'):
-		"""
-		See note in update_hplmn_act()
-		"""
-		# get size and write EF.PLMNwAcT
+		"""get size and write EF.PLMNwAcT, See note in update_hplmn_act()"""
 		data = self._scc.read_binary(EF['PLMNwAcT'], length=None, offset=0)
 		size = len(data[0]) // 2
 		hplmn = enc_plmn(mcc, mnc)
@@ -200,15 +219,24 @@ class Card(object):
 		return sw
 
 	def read_spn(self):
-		(spn, sw) = self._scc.read_binary(EF['SPN'])
+		(content, sw) = self._scc.read_binary(EF['SPN'])
 		if sw == '9000':
-			return (dec_spn(spn), sw)
+			abstract_data = EF_SPN().decode_hex(content)
+			show_in_hplmn = abstract_data['show_in_hplmn']
+			hide_in_oplmn = abstract_data['hide_in_oplmn']
+			name = abstract_data['spn']
+			return ((name, show_in_hplmn, hide_in_oplmn), sw)
 		else:
 			return (None, sw)
 
-	def update_spn(self, name, hplmn_disp=False, oplmn_disp=False):
-		content = enc_spn(name, hplmn_disp, oplmn_disp)
-		data, sw = self._scc.update_binary(EF['SPN'], rpad(content, 32))
+	def update_spn(self, name="", show_in_hplmn=False, hide_in_oplmn=False):
+		abstract_data = {
+			'hide_in_oplmn' : hide_in_oplmn,
+			'show_in_hplmn' : show_in_hplmn,
+			'spn' : name,
+		}
+		content = EF_SPN().encode_hex(abstract_data)
+		data, sw = self._scc.update_binary(EF['SPN'], content)
 		return sw
 
 	def read_binary(self, ef, length=None, offset=0):
@@ -233,8 +261,8 @@ class Card(object):
 		else:
 			return (None, sw)
 
-	# Fetch all the AIDs present on UICC
 	def read_aids(self):
+		"""Fetch all the AIDs present on UICC"""
 		self._aids = []
 		try:
 			# Find out how many records the EF.DIR has
@@ -250,8 +278,8 @@ class Card(object):
 			self._aids = []
 		return self._aids
 
-	# Select ADF.U/ISIM in the Card using its full AID
 	def select_adf_by_aid(self, adf="usim"):
+		"""Select ADF.U/ISIM in the Card using its full AID"""
 		# Find full AID by partial AID:
 		if is_hex(adf):
 			for aid in self._aids:
@@ -268,17 +296,29 @@ class Card(object):
 					return self._scc.select_adf(aid)
 		return (None, None)
 
-	# Erase the contents of a file
 	def erase_binary(self, ef):
+		"""Erase the contents of a file"""
 		len = self._scc.binary_size(ef)
 		self._scc.update_binary(ef, "ff" * len, offset=0, verify=True)
 
-	# Erase the contents of a single record
 	def erase_record(self, ef, rec_no):
+		"""Erase the contents of a single record"""
 		len = self._scc.record_size(ef)
 		self._scc.update_record(ef, rec_no, "ff" * len, force_len=False, verify=True)
 
-class UsimCard(Card):
+	def set_apdu_parameter(self, cla, sel_ctrl):
+		"""Set apdu parameters (class byte and selection control bytes)"""
+		self._scc.cla_byte = cla
+		self._scc.sel_ctrl = sel_ctrl
+
+	def get_apdu_parameter(self):
+		"""Get apdu parameters (class byte and selection control bytes)"""
+		return (self._scc.cla_byte, self._scc.sel_ctrl)
+
+class UsimCard(SimCard):
+
+	name = 'USIM'
+
 	def __init__(self, ssc):
 		super(UsimCard, self).__init__(ssc)
 
@@ -299,7 +339,12 @@ class UsimCard(Card):
 	def read_epdgid(self):
 		(res, sw) = self._scc.read_binary(EF_USIM_ADF_map['ePDGId'])
 		if sw == '9000':
-			return (dec_addr_tlv(res), sw)
+			try:
+				addr, addr_type = dec_addr_tlv(res)
+			except:
+				addr = None
+				addr_type = None
+			return (format_addr(addr, addr_type), sw)
 		else:
 			return (None, sw)
 
@@ -348,7 +393,10 @@ class UsimCard(Card):
 			(res, sw) = self._scc.update_binary(EF_USIM_ADF_map['UST'], content)
 		return sw
 
-class IsimCard(Card):
+class IsimCard(SimCard):
+
+	name = 'ISIM'
+
 	def __init__(self, ssc):
 		super(IsimCard, self).__init__(ssc)
 
@@ -358,7 +406,12 @@ class IsimCard(Card):
 		for i in range(0, rec_cnt):
 			(res, sw) = self._scc.read_record(EF_ISIM_ADF_map['PCSCF'], i + 1)
 			if sw == '9000':
-				content = dec_addr_tlv(res)
+				try:
+					addr, addr_type = dec_addr_tlv(res)
+				except:
+					addr = None
+					addr_type = None
+				content = format_addr(addr, addr_type)
 				pcscf_recs += "%s" % (len(content) and content or '\tNot available\n')
 			else:
 				pcscf_recs += "\tP-CSCF: Can't read, response code = %s\n" % (sw)
@@ -468,7 +521,7 @@ class IsimCard(Card):
 				uiari_recs += "UICC IARI: Can't read, response code = %s\n" % (sw)
 		return uiari_recs
 
-class _MagicSimBase(Card):
+class MagicSimBase(abc.ABC, SimCard):
 	"""
 	Theses cards uses several record based EFs to store the provider infos,
 	each possible provider uses a specific record number in each EF. The
@@ -487,6 +540,9 @@ class _MagicSimBase(Card):
 	* 3f00/7f4d/8f0e : Programmable Record EFs
 
 	"""
+
+	_files = { } # type: Dict[str, Tuple[str, int, bool]]
+	_ki_file = None # type: Optional[str]
 
 	@classmethod
 	def autodetect(kls, scc):
@@ -511,7 +567,7 @@ class _MagicSimBase(Card):
 		r = self._scc.select_path(['3f00', '7f4d', f[0]])
 		rec_len = int(r[-1][28:30], 16)
 		tlen = int(r[-1][4:8],16)
-		rec_cnt = (tlen / rec_len) - 1
+		rec_cnt = (tlen // rec_len) - 1
 
 		if (rec_cnt < 1) or (rec_len != f[1]):
 			raise RuntimeError('Bad card type')
@@ -573,7 +629,7 @@ class _MagicSimBase(Card):
 	def erase(self):
 		# Dummy
 		df = {}
-		for k, v in self._files.iteritems():
+		for k, v in self._files.items():
 			ofs = 1
 			fv = v[1] * 'ff'
 			if k == 'name':
@@ -583,11 +639,11 @@ class _MagicSimBase(Card):
 
 		# Write
 		for n in range(0,self._get_count()):
-			for k, (msg, ofs) in df.iteritems():
+			for k, (msg, ofs) in df.items():
 				self._scc.update_record(['3f00', '7f4d', k], n + ofs, msg)
 
 
-class SuperSim(_MagicSimBase):
+class SuperSim(MagicSimBase):
 
 	name = 'supersim'
 
@@ -600,7 +656,7 @@ class SuperSim(_MagicSimBase):
 	_ki_file = None
 
 
-class MagicSim(_MagicSimBase):
+class MagicSim(MagicSimBase):
 
 	name = 'magicsim'
 
@@ -613,7 +669,7 @@ class MagicSim(_MagicSimBase):
 	_ki_file = '6f1b'
 
 
-class FakeMagicSim(Card):
+class FakeMagicSim(SimCard):
 	"""
 	Theses cards have a record based EF 3f00/000c that contains the provider
 	information. See the program method for its format. The records go from
@@ -641,7 +697,7 @@ class FakeMagicSim(Card):
 		r = self._scc.select_path(['3f00', '000c'])
 		rec_len = int(r[-1][28:30], 16)
 		tlen = int(r[-1][4:8],16)
-		rec_cnt = (tlen / rec_len) - 1
+		rec_cnt = (tlen // rec_len) - 1
 
 		if (rec_cnt < 1) or (rec_len != 0x5a):
 			raise RuntimeError('Bad card type')
@@ -680,7 +736,7 @@ class FakeMagicSim(Card):
 			self._scc.update_record('000c', 1+i, entry)
 
 
-class GrcardSim(Card):
+class GrcardSim(SimCard):
 	"""
 	Greencard (grcard.cn) HZCOS GSM SIM
 	These cards have a much more regular ISO 7816-4 / TS 11.11 structure,
@@ -783,7 +839,7 @@ class SysmoUSIMgr1(UsimCard):
 		data, sw = self._scc._tp.send_apdu_checksw("0099000033" + par)
 
 
-class SysmoSIMgr2(Card):
+class SysmoSIMgr2(SimCard):
 	"""
 	sysmocom sysmoSIM-GR2
 	"""
@@ -909,8 +965,7 @@ class SysmoUSIMSJS1(UsimCard):
 
 		# set Service Provider Name
 		if p.get('name') is not None:
-			content = enc_spn(p['name'], True, True)
-			data, sw = self._scc.update_binary('6F46', rpad(content, 32))
+			self.update_spn(p['name'], True, True)
 
 		if p.get('acc') is not None:
 			self.update_acc(p['acc'])
@@ -963,7 +1018,7 @@ class SysmoUSIMSJS1(UsimCard):
 		# TODO: Extension1 Record Identifier
 		if p.get('msisdn') is not None:
 			msisdn = enc_msisdn(p['msisdn'])
-			data = 'ff' * 20 + msisdn + 'ff' * 2
+			data = 'ff' * 20 + msisdn
 
 			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6F40', 1, data, force_len=True)
@@ -1073,8 +1128,25 @@ class FairwavesSIM(UsimCard):
 		data, sw = self._scc.update_binary(self._EF['OP/OPC'], content)
 		return sw
 
-
 	def program(self, p):
+		# For some reason the card programming only works when the card
+		# is handled as a classic SIM, even though it is an USIM, so we
+		# reconfigure the class byte and the select control field on
+		# the fly. When the programming is done the original values are
+		# restored.
+		cla_byte_orig = self._scc.cla_byte
+		sel_ctrl_orig = self._scc.sel_ctrl
+		self._scc.cla_byte = "a0"
+		self._scc.sel_ctrl = "0000"
+
+		try:
+			self._program(p)
+		finally:
+			# restore original cla byte and sel ctrl
+			self._scc.cla_byte = cla_byte_orig
+			self._scc.sel_ctrl = sel_ctrl_orig
+
+	def _program(self, p):
 		# authenticate as ADM1
 		if not p['pin_adm']:
 			raise ValueError("Please provide a PIN-ADM as there is no default one")
@@ -1107,7 +1179,7 @@ class FairwavesSIM(UsimCard):
 			if sw != '9000':
 				print("Programming ACC failed with code %s"%sw)
 
-class OpenCellsSim(Card):
+class OpenCellsSim(SimCard):
 	"""
 	OpenCellsSim
 
@@ -1304,8 +1376,7 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 
 		# set Service Provider Name
 		if p.get('name') is not None:
-			content = enc_spn(p['name'], True, True)
-			data, sw = self._scc.update_binary('6F46', rpad(content, 32))
+			self.update_spn(p['name'], True, True)
 
 		# write EF.IMSI
 		if p.get('imsi'):
@@ -1356,7 +1427,7 @@ class SysmoISIMSJA2(UsimCard, IsimCard):
 		# TODO: Extension1 Record Identifier
 		if p.get('msisdn') is not None:
 			msisdn = enc_msisdn(p['msisdn'])
-			content = 'ff' * 20 + msisdn + 'ff' * 2
+			content = 'ff' * 20 + msisdn
 
 			r = self._scc.select_path(['3f00', '7f10'])
 			data, sw = self._scc.update_record('6F40', 1, content, force_len=True)
@@ -1493,20 +1564,12 @@ _cards_classes = [ FakeMagicSim, SuperSim, MagicSim, GrcardSim,
 		   SysmoSIMgr1, SysmoSIMgr2, SysmoUSIMgr1, SysmoUSIMSJS1,
 		   FairwavesSIM, OpenCellsSim, WavemobileSim, SysmoISIMSJA2 ]
 
-def card_autodetect(scc):
-	for kls in _cards_classes:
-		card = kls.autodetect(scc)
-		if card is not None:
-			card.reset()
-			return card
-	return None
-
 def card_detect(ctype, scc):
 	# Detect type if needed
 	card = None
 	ctypes = dict([(kls.name, kls) for kls in _cards_classes])
 
-	if ctype in ("auto", "auto_once"):
+	if ctype == "auto":
 		for kls in _cards_classes:
 			card = kls.autodetect(scc)
 			if card:
@@ -1517,9 +1580,6 @@ def card_detect(ctype, scc):
 		if card is None:
 			print("Autodetection failed")
 			return None
-
-		if ctype == "auto_once":
-			ctype = card.name
 
 	elif ctype in ctypes:
 		card = ctypes[ctype](scc)

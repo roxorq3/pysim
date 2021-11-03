@@ -27,6 +27,8 @@ not the actual contents / runtime state of interacting with a given smart card.
 import code
 import tempfile
 import json
+import abc
+import inspect
 
 import cmd2
 from cmd2 import CommandSet, with_default_category, with_argparser
@@ -34,10 +36,13 @@ import argparse
 
 from typing import cast, Optional, Iterable, List, Any, Dict, Tuple
 
-from pySim.utils import sw_match, h2b, b2h, is_hex
-from pySim.construct import filter_dict
+from smartcard.util import toBytes
+
+from pySim.utils import sw_match, h2b, b2h, i2h, is_hex, auto_int, bertlv_parse_one, Hexstr
+from pySim.construct import filter_dict, parse_construct
 from pySim.exceptions import *
 from pySim.jsonpath import js_path_find, js_path_modify
+from pySim.commands import SimCardCommands
 
 class CardFile(object):
     """Base class for all objects in the smart card filesystem.
@@ -209,13 +214,13 @@ class CardDF(CardFile):
         if child.fid in self.children:
             if ignore_existing:
                 return
-            raise ValueError("File with given fid %s already exists" % (child.fid))
+            raise ValueError("File with given fid %s already exists in %s" % (child.fid, self))
         if self.lookup_file_by_sfid(child.sfid):
-            raise ValueError("File with given sfid %s already exists" % (child.sfid))
+            raise ValueError("File with given sfid %s already exists in %s" % (child.sfid, self))
         if self.lookup_file_by_name(child.name):
             if ignore_existing:
                 return
-            raise ValueError("File with given name %s already exists" % (child.name))
+            raise ValueError("File with given name %s already exists in %s" % (child.name, self))
         self.children[child.fid] = child
         child.parent = self
 
@@ -468,6 +473,7 @@ class TransparentEF(CardEF):
         """
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, parent=parent)
         self._construct = None
+        self._tlv = None
         self.size = size
         self.shell_commands = [self.ShellCommands()]
 
@@ -490,7 +496,10 @@ class TransparentEF(CardEF):
         if callable(method):
             return method(b2h(raw_bin_data))
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_bin_data.hex()}
 
     def decode_hex(self, raw_hex_data:str) -> dict:
@@ -513,7 +522,10 @@ class TransparentEF(CardEF):
         if callable(method):
             return method(raw_bin_data)
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_bin_data.hex()}
 
     def encode_bin(self, abstract_data:dict) -> bytearray:
@@ -536,7 +548,10 @@ class TransparentEF(CardEF):
             return h2b(method(abstract_data))
         if self._construct:
             return self._construct.build(abstract_data)
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return self._tlv.to_tlv()
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
     def encode_hex(self, abstract_data:dict) -> str:
         """Encode abstract representation into raw (hex string) data.
@@ -559,7 +574,10 @@ class TransparentEF(CardEF):
             return b2h(raw_bin_data)
         if self._construct:
             return b2h(self._construct.build(abstract_data))
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return b2h(self._tlv.to_tlv())
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
 
 class LinFixedEF(CardEF):
@@ -638,7 +656,7 @@ class LinFixedEF(CardEF):
 
         upd_rec_dec_parser = argparse.ArgumentParser()
         upd_rec_dec_parser.add_argument('record_nr', type=int, help='Number of record to be read')
-        upd_rec_dec_parser.add_argument('data', help='Data bytes (hex format) to write')
+        upd_rec_dec_parser.add_argument('data', help='Abstract data (JSON format) to write')
         upd_rec_dec_parser.add_argument('--json-path', type=str,
                                         help='JSON path to modify specific element of record only')
         @cmd2.with_argparser(upd_rec_dec_parser)
@@ -659,8 +677,7 @@ class LinFixedEF(CardEF):
         def do_edit_record_decoded(self, opts):
             """Edit the JSON representation of one record in an editor."""
             (orig_json, sw) = self._cmd.rs.read_record_dec(opts.record_nr)
-            dirname = tempfile.mkdtemp(prefix='pysim_')
-            try:
+            with tempfile.TemporaryDirectory(prefix='pysim_') as dirname:
                 filename = '%s/file' % dirname
                 # write existing data as JSON to file
                 with open(filename, 'w') as text_file:
@@ -675,8 +692,6 @@ class LinFixedEF(CardEF):
                     (data, sw) = self._cmd.rs.update_record_dec(opts.record_nr, edited_json)
                     if data:
                         self._cmd.poutput_json(data)
-            finally:
-                shutil.rmtree(dirname)
 
 
     def __init__(self, fid:str, sfid:str=None, name:str=None, desc:str=None,
@@ -688,12 +703,13 @@ class LinFixedEF(CardEF):
             name : Brief name of the file, lik EF_ICCID
             desc : Description of the file
             parent : Parent CardFile object within filesystem hierarchy
-            rec_len : tuple of (minimum_length, recommended_length)
+            rec_len : set of {minimum_length, recommended_length}
         """
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, parent=parent)
         self.rec_len = rec_len
         self.shell_commands = [self.ShellCommands()]
         self._construct = None
+        self._tlv = None
 
     def decode_record_hex(self, raw_hex_data:str) -> dict:
         """Decode raw (hex string) data into abstract representation.
@@ -715,7 +731,10 @@ class LinFixedEF(CardEF):
         if callable(method):
             return method(raw_bin_data)
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_bin_data.hex()}
 
     def decode_record_bin(self, raw_bin_data:bytearray) -> dict:
@@ -738,7 +757,10 @@ class LinFixedEF(CardEF):
         if callable(method):
             return method(raw_hex_data)
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_hex_data}
 
     def encode_record_hex(self, abstract_data:dict) -> str:
@@ -762,7 +784,10 @@ class LinFixedEF(CardEF):
             return b2h(raw_bin_data)
         if self._construct:
             return b2h(self._construct.build(abstract_data))
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return b2h(self._tlv.to_tlv())
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
     def encode_record_bin(self, abstract_data:dict) -> bytearray:
         """Encode abstract representation into raw (binary) data.
@@ -784,7 +809,10 @@ class LinFixedEF(CardEF):
             return h2b(method(abstract_data))
         if self._construct:
             return self._construct.build(abstract_data)
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return self._tlv.to_tlv()
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
 class CyclicEF(LinFixedEF):
     """Cyclic EF (Entry File) in the smart card filesystem"""
@@ -837,7 +865,10 @@ class TransRecEF(TransparentEF):
         if callable(method):
             return method(raw_bin_data)
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_hex_data}
 
     def decode_record_bin(self, raw_bin_data:bytearray) -> dict:
@@ -860,7 +891,10 @@ class TransRecEF(TransparentEF):
         if callable(method):
             return method(raw_hex_data)
         if self._construct:
-            return filter_dict(self._construct.parse(raw_bin_data, total_len=len(raw_bin_data)))
+            return parse_construct(self._construct, raw_bin_data)
+        elif self._tlv:
+            self._tlv.from_tlv(raw_bin_data)
+            return self._tlv.to_dict()
         return {'raw': raw_hex_data}
 
     def encode_record_hex(self, abstract_data:dict) -> str:
@@ -883,7 +917,10 @@ class TransRecEF(TransparentEF):
             return b2h(method(abstract_data))
         if self._construct:
             return b2h(filter_dict(self._construct.build(abstract_data)))
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return b2h(self._tlv.to_tlv())
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
     def encode_record_bin(self, abstract_data:dict) -> bytearray:
         """Encode abstract representation into raw (binary) data.
@@ -905,7 +942,10 @@ class TransRecEF(TransparentEF):
             return h2b(method(abstract_data))
         if self._construct:
             return filter_dict(self._construct.build(abstract_data))
-        raise NotImplementedError
+        elif self._tlv:
+            self._tlv.from_dict(abstract_data)
+            return self._tlv.to_tlv()
+        raise NotImplementedError("%s encoder not yet implemented. Patches welcome." % self)
 
     def _decode_bin(self, raw_bin_data:bytearray):
         chunks = [raw_bin_data[i:i+self.rec_len] for i in range(0, len(raw_bin_data), self.rec_len)]
@@ -917,7 +957,68 @@ class TransRecEF(TransparentEF):
         return b''.join(chunks)
 
 
+class BerTlvEF(CardEF):
+    """BER-TLV EF (Entry File) in the smart card filesystem.
+    A BER-TLV EF is a binary file with a BER (Basic Encoding Rules) TLV structure
 
+    NOTE: We currently don't really support those, this class is simply a wrapper
+    around TransparentEF as a place-holder, so we can already define EFs of BER-TLV
+    type without fully supporting them."""
+
+    @with_default_category('BER-TLV EF Commands')
+    class ShellCommands(CommandSet):
+        """Shell commands specific for BER-TLV EFs."""
+        def __init__(self):
+            super().__init__()
+
+        retrieve_data_parser = argparse.ArgumentParser()
+        retrieve_data_parser.add_argument('tag', type=auto_int, help='BER-TLV Tag of value to retrieve')
+        @cmd2.with_argparser(retrieve_data_parser)
+        def do_retrieve_data(self, opts):
+            """Retrieve (Read) data from a BER-TLV EF"""
+            (data, sw) = self._cmd.rs.retrieve_data(opts.tag)
+            self._cmd.poutput(data)
+
+        def do_retrieve_tags(self, opts):
+            """List tags available in a given BER-TLV EF"""
+            tags = self._cmd.rs.retrieve_tags()
+            self._cmd.poutput(tags)
+
+        set_data_parser = argparse.ArgumentParser()
+        set_data_parser.add_argument('tag', type=auto_int, help='BER-TLV Tag of value to set')
+        set_data_parser.add_argument('data', help='Data bytes (hex format) to write')
+        @cmd2.with_argparser(set_data_parser)
+        def do_set_data(self, opts):
+            """Set (Write) data for a given tag in a BER-TLV EF"""
+            (data, sw) = self._cmd.rs.set_data(opts.tag, opts.data)
+            if data:
+                self._cmd.poutput(data)
+
+        del_data_parser = argparse.ArgumentParser()
+        del_data_parser.add_argument('tag', type=auto_int, help='BER-TLV Tag of value to set')
+        @cmd2.with_argparser(del_data_parser)
+        def do_delete_data(self, opts):
+            """Delete  data for a given tag in a BER-TLV EF"""
+            (data, sw) = self._cmd.rs.set_data(opts.tag, None)
+            if data:
+                self._cmd.poutput(data)
+
+
+    def __init__(self, fid:str, sfid:str=None, name:str=None, desc:str=None, parent:CardDF=None,
+                 size={1,None}):
+        """
+        Args:
+            fid : File Identifier (4 hex digits)
+            sfid : Short File Identifier (2 hex digits, optional)
+            name : Brief name of the file, lik EF_ICCID
+            desc : Description of the file
+            parent : Parent CardFile object within filesystem hierarchy
+            size : tuple of (minimum_size, recommended_size)
+        """
+        super().__init__(fid=fid, sfid=sfid, name=name, desc=desc, parent=parent)
+        self._construct = None
+        self.size = size
+        self.shell_commands = [self.ShellCommands()]
 
 
 class RuntimeState(object):
@@ -961,6 +1062,16 @@ class RuntimeState(object):
         else:
             print("error: could not determine card applications")
         return apps_taken
+
+    def reset(self, cmd_app=None) -> Hexstr:
+        """Perform physical card reset and obtain ATR.
+        Args:
+            cmd_app : Command Application State (for unregistering old file commands)
+        """
+        atr = i2h(self.card.reset())
+        # select MF to reset internal state and to verify card really works
+        self.select('MF', cmd_app)
+        return atr
 
     def get_cwd(self) -> CardDF:
         """Obtain the current working directory.
@@ -1076,6 +1187,18 @@ class RuntimeState(object):
 
         return select_resp
 
+    def status(self):
+        """Request STATUS (current selected file FCP) from card."""
+        (data, sw) = self.card._scc.status()
+        return self.selected_file.decode_select_response(data)
+
+    def activate_file(self, name:str):
+        """Request ACTIVATE FILE of specified file."""
+        sels = self.selected_file.get_selectables()
+        f = sels[name]
+        data, sw = self.card._scc.activate_file(f.fid)
+        return data, sw
+
     def read_binary(self, length:int=None, offset:int=0):
         """Read [part of] a transparent EF binary data.
 
@@ -1168,6 +1291,48 @@ class RuntimeState(object):
         """
         data_hex = self.selected_file.encode_record_hex(data)
         return self.update_record(rec_nr, data_hex)
+
+    def retrieve_data(self, tag:int=0):
+        """Read a DO/TLV as binary data.
+
+        Args:
+            tag : Tag of TLV/DO to read
+        Returns:
+            hex string of full BER-TLV DO including Tag and Length
+        """
+        if not isinstance(self.selected_file, BerTlvEF):
+            raise TypeError("Only works with BER-TLV EF")
+        # returns a string of hex nibbles
+        return self.card._scc.retrieve_data(self.selected_file.fid, tag)
+
+    def retrieve_tags(self):
+        """Retrieve tags available on BER-TLV EF.
+
+        Returns:
+            list of integer tags contained in EF
+        """
+        if not isinstance(self.selected_file, BerTlvEF):
+            raise TypeError("Only works with BER-TLV EF")
+        data, sw = self.card._scc.retrieve_data(self.selected_file.fid, 0x5c)
+        tag, length, value, remainder = bertlv_parse_one(h2b(data))
+        return list(value)
+
+    def set_data(self, tag:int, data_hex:str):
+        """Update a TLV/DO with given binary data
+
+        Args:
+            tag : Tag of TLV/DO to be written
+            data_hex : Hex string binary data to be written (value portion)
+        """
+        if not isinstance(self.selected_file, BerTlvEF):
+            raise TypeError("Only works with BER-TLV EF")
+        return self.card._scc.set_data(self.selected_file.fid, tag, data_hex, conserve=self.conserve_write)
+
+    def unregister_cmds(self, cmd_app=None):
+        """Unregister all file specific commands."""
+        if cmd_app and self.selected_file.shell_commands:
+            for c in self.selected_file.shell_commands:
+                cmd_app.unregister_command_set(c)
 
 
 
@@ -1271,3 +1436,35 @@ class CardProfile(object):
             Tuple of two strings
         """
         return interpret_sw(self.sw, sw)
+
+
+class CardModel(abc.ABC):
+    """A specific card model, typically having some additional vendor-specific files. All
+    you need to do is to define a sub-class with a list of ATRs or an overridden match
+    method."""
+    _atrs = []
+
+    @classmethod
+    @abc.abstractmethod
+    def add_files(cls, rs:RuntimeState):
+        """Add model specific files to given RuntimeState."""
+
+    @classmethod
+    def match(cls, scc:SimCardCommands) -> bool:
+        """Test if given card matches this model."""
+        card_atr = scc.get_atr()
+        for atr in cls._atrs:
+            atr_bin = toBytes(atr)
+            if atr_bin == card_atr:
+                print("Detected CardModel:", cls.__name__)
+                return True
+        return False
+
+    @staticmethod
+    def apply_matching_models(scc:SimCardCommands, rs:RuntimeState):
+        """Check if any of the CardModel sub-classes 'match' the currently inserted card
+        (by ATR or overriding the 'match' method). If so, call their 'add_files'
+        method."""
+        for m in CardModel.__subclasses__():
+            if m.match(scc):
+                m.add_files(rs)

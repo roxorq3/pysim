@@ -5,7 +5,7 @@
 
 #
 # Copyright (C) 2009-2010  Sylvain Munaut <tnt@246tNt.com>
-# Copyright (C) 2010       Harald Welte <laforge@gnumonks.org>
+# Copyright (C) 2010-2021  Harald Welte <laforge@gnumonks.org>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -23,13 +23,13 @@
 
 from construct import *
 from pySim.construct import LV
-from pySim.utils import rpad, b2h, sw_match
+from pySim.utils import rpad, b2h, h2b, sw_match, bertlv_encode_len, Hexstr, h2i
 from pySim.exceptions import SwMatchError
 
 class SimCardCommands(object):
 	def __init__(self, transport):
 		self._tp = transport
-		self._cla_byte = "a0"
+		self.cla_byte = "a0"
 		self.sel_ctrl = "0000"
 
 	# Extract a single FCP item from TLV
@@ -89,20 +89,6 @@ class SimCardCommands(object):
 		"""Return the ATR of the currently inserted card."""
 		return self._tp.get_atr()
 
-	@property
-	def cla_byte(self):
-		return self._cla_byte
-	@cla_byte.setter
-	def cla_byte(self, value):
-		self._cla_byte = value
-
-	@property
-	def sel_ctrl(self):
-		return self._sel_ctrl
-	@sel_ctrl.setter
-	def sel_ctrl(self, value):
-		self._sel_ctrl = value
-
 	def try_select_path(self, dir_list):
 		""" Try to select a specified path given as list of hex-string FIDs"""
 		rv = []
@@ -155,13 +141,14 @@ class SimCardCommands(object):
 		if length is None:
 			length = self.__len(r) - offset
 		total_data = ''
-		while offset < length:
-			chunk_len = min(255, length-offset)
-			pdu = self.cla_byte + 'b0%04x%02x' % (offset, chunk_len)
+		chunk_offset = 0
+		while chunk_offset < length:
+			chunk_len = min(255, length-chunk_offset)
+			pdu = self.cla_byte + 'b0%04x%02x' % (offset + chunk_offset, chunk_len)
 			data,sw = self._tp.send_apdu(pdu)
 			if sw == '9000':
 				total_data += data
-				offset += chunk_len
+				chunk_offset += chunk_len
 			else:
 				raise ValueError('Failed to read (offset %d)' % (offset))
 		return total_data, sw
@@ -184,11 +171,23 @@ class SimCardCommands(object):
 				return None, sw
 
 		self.select_path(ef)
-		pdu = self.cla_byte + 'd6%04x%02x' % (offset, data_length) + data
-		res = self._tp.send_apdu_checksw(pdu)
+		total_data = ''
+		total_sw = "9000"
+		chunk_offset = 0
+		while chunk_offset < data_length:
+			chunk_len = min(255, data_length - chunk_offset)
+			# chunk_offset is bytes, but data slicing is hex chars, so we need to multiply by 2
+			pdu = self.cla_byte + 'd6%04x%02x' % (offset + chunk_offset, chunk_len) + data[chunk_offset*2 : (chunk_offset+chunk_len)*2]
+			chunk_data, chunk_sw = self._tp.send_apdu(pdu)
+			if chunk_sw == total_sw:
+				total_data += chunk_data
+				chunk_offset += chunk_len
+			else:
+				total_sw = chunk_sw
+				raise ValueError('Failed to write chunk (chunk_offset %d, chunk_len %d)' % (chunk_offset, chunk_len))
 		if verify:
 			self.verify_binary(ef, data, offset)
-		return res
+		return total_data, total_sw
 
 	def verify_binary(self, ef, data:str, offset:int=0):
 		"""Verify contents of transparent EF.
@@ -216,13 +215,20 @@ class SimCardCommands(object):
 
 	def update_record(self, ef, rec_no:int, data:str, force_len:bool=False, verify:bool=False,
 					  conserve:bool=False):
-		r = self.select_path(ef)
-		if not force_len:
-			rec_length = self.__record_len(r)
-			if (len(data) // 2 != rec_length):
-				raise ValueError('Invalid data length (expected %d, got %d)' % (rec_length, len(data) // 2))
-		else:
+		res = self.select_path(ef)
+
+		if force_len:
+			# enforce the record length by the actual length of the given data input
 			rec_length = len(data) // 2
+		else:
+			# determine the record length from the select response of the file and pad
+			# the input data with 0xFF if necessary. In cases where the input data
+			# exceed we throw an exception.
+			rec_length = self.__record_len(res)
+			if (len(data) // 2 > rec_length):
+				raise ValueError('Data length exceeds record length (expected max %d, got %d)' % (rec_length, len(data) // 2))
+			elif (len(data) // 2 < rec_length):
+				data = rpad(data, rec_length * 2)
 
 		# Save write cycles by reading+comparing before write
 		if conserve:
@@ -269,6 +275,75 @@ class SimCardCommands(object):
 		r = self.select_path(ef)
 		return self.__len(r)
 
+	# TS 102 221 Section 11.3.1 low-level helper
+	def _retrieve_data(self, tag:int, first:bool=True):
+		if first:
+			pdu = '80cb008001%02x' % (tag)
+		else:
+			pdu = '80cb000000'
+		return self._tp.send_apdu_checksw(pdu)
+
+	def retrieve_data(self, ef, tag:int):
+		"""Execute RETRIEVE DATA, see also TS 102 221 Section 11.3.1.
+
+		Args
+			ef : string or list of strings indicating name or path of transparent EF
+			tag : BER-TLV Tag of value to be retrieved
+		"""
+		r = self.select_path(ef)
+		if len(r[-1]) == 0:
+			return (None, None)
+		total_data = ''
+		# retrieve first block
+		data, sw = self._retrieve_data(tag, first=True)
+		total_data += data
+		while sw == '62f1' or sw == '62f2':
+			data, sw = self._retrieve_data(tag, first=False)
+			total_data += data
+		return total_data, sw
+
+	# TS 102 221 Section 11.3.2 low-level helper
+	def _set_data(self, data:str, first:bool=True):
+		if first:
+			p1 = 0x80
+		else:
+			p1 = 0x00
+		if isinstance(data, bytes) or isinstance(data, bytearray):
+			data = b2h(data)
+		pdu = '80db00%02x%02x%s' % (p1, len(data)//2, data)
+		return self._tp.send_apdu_checksw(pdu)
+
+	def set_data(self, ef, tag:int, value:str, verify:bool=False, conserve:bool=False):
+		"""Execute SET DATA.
+
+		Args
+			ef : string or list of strings indicating name or path of transparent EF
+			tag : BER-TLV Tag of value to be stored
+			value : BER-TLV value to be stored
+		"""
+		r = self.select_path(ef)
+		if len(r[-1]) == 0:
+			return (None, None)
+
+		# in case of deleting the data, we only have 'tag' but no 'value'
+		if not value:
+			return self._set_data('%02x' % tag, first=True)
+
+		# FIXME: proper BER-TLV encode
+		tl = '%02x%s' % (tag, b2h(bertlv_encode_len(len(value)//2)))
+		tlv = tl + value
+		tlv_bin = h2b(tlv)
+
+		first = True
+		total_len = len(tlv_bin)
+		remaining = tlv_bin
+		while len(remaining) > 0:
+			fragment = remaining[:255]
+			rdata, sw = self._set_data(fragment, first=first)
+			first = False
+			remaining = remaining[255:]
+		return rdata, sw
+
 	def run_gsm(self, rand:str):
 		"""Execute RUN GSM ALGORITHM."""
 		if len(rand) != 32:
@@ -289,20 +364,24 @@ class SimCardCommands(object):
 			p2 = '81'
 		elif context == 'gsm':
 			p2 = '80'
-		(data, sw) = self._tp.send_apdu_constr(self.cla_byte, '88', '00', p2, AuthCmd3G, cmd_data, AuthResp3G)
+		(data, sw) = self._tp.send_apdu_constr_checksw(self.cla_byte, '88', '00', p2, AuthCmd3G, cmd_data, AuthResp3G)
 		if 'auts' in data:
 			ret = {'synchronisation_failure': data}
 		else:
 			ret = {'successful_3g_authentication': data}
 		return (ret, sw)
 
+	def status(self):
+		"""Execute a STATUS command as per TS 102 221 Section 11.1.2."""
+		return self._tp.send_apdu_checksw('80F20000ff')
+
 	def deactivate_file(self):
 		"""Execute DECATIVATE FILE command as per TS 102 221 Section 11.1.14."""
 		return self._tp.send_apdu_constr_checksw(self.cla_byte, '04', '00', '00', None, None, None)
 
-	def activate_file(self):
+	def activate_file(self, fid):
 		"""Execute ACTIVATE FILE command as per TS 102 221 Section 11.1.15."""
-		return self._tp.send_apdu_constr_checksw(self.cla_byte, '44', '00', '00', None, None, None)
+		return self._tp.send_apdu_checksw(self.cla_byte + '44000002' + fid)
 
 	def manage_channel(self, mode='open', lchan_nr=0):
 		"""Execute MANAGE CHANNEL command as per TS 102 221 Section 11.1.17."""
@@ -358,3 +437,49 @@ class SimCardCommands(object):
 		data, sw = self._tp.send_apdu(self.cla_byte + '2800' + ('%02X' % chv_no) + '08' + fc)
 		self._chv_process_sw('enable', chv_no, pin_code, sw)
 		return (data, sw)
+
+	def envelope(self, payload:str):
+		"""Send one ENVELOPE command to the SIM"""
+		return self._tp.send_apdu_checksw('80c20000%02x%s' % (len(payload)//2, payload))
+
+	def terminal_profile(self, payload:str):
+		"""Send TERMINAL PROFILE to card"""
+		data_length = len(payload) // 2
+		data, sw = self._tp.send_apdu(('80100000%02x' % data_length) + payload)
+		return (data, sw)
+
+	# ETSI TS 102 221 11.1.22
+	def suspend_uicc(self, min_len_secs:int=60, max_len_secs:int=43200):
+		"""Send SUSPEND UICC to the card."""
+		def encode_duration(secs:int) -> Hexstr:
+			if secs >= 10*24*60*60:
+				return '04%02x' % (secs // (10*24*60*60))
+			elif secs >= 24*60*60:
+				return '03%02x' % (secs // (24*60*60))
+			elif secs >= 60*60:
+				return '02%02x' % (secs // (60*60))
+			elif secs >= 60:
+				return '01%02x' % (secs // 60)
+			else:
+				return '00%02x' % secs
+		def decode_duration(enc:Hexstr) -> int:
+			time_unit = enc[:2]
+			length = h2i(enc[2:4])
+			if time_unit == '04':
+				return length * 10*24*60*60
+			elif time_unit == '03':
+				return length * 24*60*60
+			elif time_unit == '02':
+				return length * 60*60
+			elif time_unit == '01':
+				return length * 60
+			elif time_unit == '00':
+				return length
+			else:
+				raise ValueError('Time unit must be 0x00..0x04')
+		min_dur_enc = encode_duration(min_len_secs)
+		max_dur_enc = encode_duration(max_len_secs)
+		data, sw = self._tp.send_apdu_checksw('8076000004' + min_dur_enc + max_dur_enc)
+		negotiated_duration_secs = decode_duration(data[:4])
+		resume_token = data[4:]
+		return (negotiated_duration_secs, resume_token, sw)

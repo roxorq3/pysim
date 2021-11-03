@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Various constants from ETSI TS 131 103 V14.2.0
+Various constants from 3GPP TS 31.103 V16.1.0
 """
 
 #
@@ -24,9 +24,11 @@ Various constants from ETSI TS 131 103 V14.2.0
 
 from pySim.filesystem import *
 from pySim.utils import *
-from pySim.ts_51_011 import EF_AD
-from pySim.ts_31_102 import ADF_USIM
+from pySim.tlv import *
+from pySim.ts_51_011 import EF_AD, EF_SMS, EF_SMSS, EF_SMSR, EF_SMSP
+from pySim.ts_31_102 import ADF_USIM, EF_FromPreferred
 import pySim.ts_102_221
+from pySim.ts_102_221 import EF_ARR
 
 # Mapping between ISIM Service Number and its description
 EF_IST_map = {
@@ -50,6 +52,7 @@ EF_IST_map = {
 	18: 'IMS configuration data',
 	19: 'XCAP Configuration Data',
 	20: 'WebRTC URI',
+	21: 'MuD and MiD configuration data',
 }
 
 EF_ISIM_ADF_map = {
@@ -76,23 +79,27 @@ EF_ISIM_ADF_map = {
 
 # TS 31.103 Section 4.2.2
 class EF_IMPI(TransparentEF):
+    class nai(BER_TLV_IE, tag=0x80):
+        _construct = GreedyString("utf8")
     def __init__(self, fid='6f02', sfid=0x02, name='EF.IMPI', desc='IMS private user identity'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
+        self._tlv = EF_IMPI.nai
 
 # TS 31.103 Section 4.2.3
 class EF_DOMAIN(TransparentEF):
+    class domain(BER_TLV_IE, tag=0x80):
+        _construct = GreedyString("utf8")
     def __init__(self, fid='6f05', sfid=0x05, name='EF.DOMAIN', desc='Home Network Domain Name'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
+        self._tlv = EF_DOMAIN.domain
 
 # TS 31.103 Section 4.2.4
 class EF_IMPU(LinFixedEF):
+    class impu(BER_TLV_IE, tag=0x80):
+        _construct = GreedyString("utf8")
     def __init__(self, fid='6f04', sfid=0x04, name='EF.IMPU', desc='IMS public user identity'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
-
-# TS 31.103 Section 4.2.6
-class EF_ARR(LinFixedEF):
-    def __init__(self, fid='6f06', sfid=0x06, name='EF.ARR', desc='Access Rule Reference'):
-        super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
+        self._tlv = EF_IMPU.impu
 
 # TS 31.103 Section 4.2.7
 class EF_IST(TransparentEF):
@@ -119,10 +126,12 @@ class EF_PCSCF(LinFixedEF):
     def __init__(self, fid='6f09', sfid=None, name='EF.P-CSCF', desc='P-CSCF Address'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
     def _decode_record_hex(self, raw_hex):
-        # FIXME: this doesn't do JSON output
-        return dec_addr_tlv(raw_hex)
+        addr, addr_type = dec_addr_tlv(raw_hex)
+        return {"addr": addr, "addr_type": addr_type}
     def _encode_record_hex(self, json_in):
-        return enc_addr_tlv(json_in)
+        addr = json_in['addr']
+        addr_type = json_in['addr_type']
+        return enc_addr_tlv(addr, addr_type)
 
 # TS 31.103 Section 4.2.9
 class EF_GBABP(TransparentEF):
@@ -141,22 +150,34 @@ class EF_NAFKCA(LinFixedEF):
 
 # TS 31.103 Section 4.2.16
 class EF_UICCIARI(LinFixedEF):
+    class iari(BER_TLV_IE, tag=0x80):
+        _construct = GreedyString("utf8")
     def __init__(self, fid='6fe7', sfid=None, name='EF.UICCIARI', desc='UICC IARI'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
+        self._tlv = EF_UICCIARI.iari
 
 # TS 31.103 Section 4.2.18
-class EF_IMSConfigData(TransparentEF):
+class EF_IMSConfigData(BerTlvEF):
     def __init__(self, fid='6ff8', sfid=None, name='EF.IMSConfigData', desc='IMS Configuration Data'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
 
 # TS 31.103 Section 4.2.19
-class EF_XCAPConfigData(TransparentEF):
+class EF_XCAPConfigData(BerTlvEF):
     def __init__(self, fid='6ffc', sfid=None, name='EF.XCAPConfigData', desc='XCAP Configuration Data'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
 
 # TS 31.103 Section 4.2.20
 class EF_WebRTCURI(TransparentEF):
+    class uri(BER_TLV_IE, tag=0x80):
+        _construct = GreedyString("utf8")
     def __init__(self, fid='6ffa', sfid=None, name='EF.WebRTCURI', desc='WebRTC URI'):
+        super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
+        self._tlv = EF_WebRTCURI.uri
+
+# TS 31.103 Section 4.2.21
+class EF_MuDMiDConfigData(BerTlvEF):
+    def __init__(self, fid='6ffe', sfid=None, name='EF.MuDMiDConfigData',
+                 desc='MuD and MiD Configuration Data'):
         super().__init__(fid=fid, sfid=sfid, name=name, desc=desc)
 
 
@@ -170,21 +191,22 @@ class ADF_ISIM(CardADF):
             EF_DOMAIN(),
             EF_IMPU(),
             EF_AD(),
-            EF_ARR(),
+            EF_ARR('6f06', 0x06),
             EF_IST(),
             EF_PCSCF(),
             EF_GBABP(),
             EF_GBANL(),
             EF_NAFKCA(),
-            # SMS
-            # SMSS
-            # SMSR
-            #EF_SMSP(),
+            EF_SMS(),
+            EF_SMSS(),
+            EF_SMSR(),
+            EF_SMSP(),
             EF_UICCIARI(),
-            # FromPreferred
+            EF_FromPreferred(),
             EF_IMSConfigData(),
             EF_XCAPConfigData(),
             EF_WebRTCURI(),
+            EF_MuDMiDConfigData(),
           ]
         self.add_files(files)
         # add those commands to the general commands of a TransparentEF
@@ -201,4 +223,6 @@ sw_isim = {
     }
 }
 
-CardApplicationISIM = CardApplication('ISIM', adf=ADF_ISIM(), sw=sw_isim)
+class CardApplicationISIM(CardApplication):
+    def __init__(self):
+	    super().__init__('ISIM', adf=ADF_ISIM(), sw=sw_isim)

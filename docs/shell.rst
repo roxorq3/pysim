@@ -156,6 +156,20 @@ close_channel
    :func: Iso7816Commands.close_chan_parser
 
 
+suspend_uicc
+~~~~~~~~~~~~
+This command allows you to perform the SUSPEND UICC command on the card.  This is a relatively
+recent power-saving addition to the UICC specifications, allowing for suspend/resume while maintaining
+state, as opposed to a full power-off (deactivate) and power-on (activate) of the card.
+
+The pySim command just sends that SUSPEND UICC command and doesn't perform the full related sequence
+including the electrical power down.
+
+.. argparse::
+   :module: pySim-shell
+   :func: Iso7816Commands.suspend_uicc_parser
+
+
 pySim commands
 --------------
 
@@ -182,15 +196,63 @@ export
    :module: pySim-shell
    :func: PySimCommands.export_parser
 
+Please note that `export` works relative to the current working
+directory, so if you are in `MF`, then the export will contain all known
+files on the card.  However, if you are in `ADF.ISIM`, only files below
+that ADF will be part of the export.
+
+Furthermore, it is strongly advised to first enter the ADM1 pin
+(`verify_adm`) to maximize the chance of having permission to read
+all/most files.
+
 
 tree
 ~~~~
-FIXME
+
+Display a tree of the card filesystem.  It is important to note that this displays a tree
+of files that might potentially exist (based on the card profile).  In order to determine if
+a given file really exists on a given card, you have to try to select that file.
 
 
 verify_adm
 ~~~~~~~~~~
-FIXME
+
+Verify the ADM (Administrator) PIN specified as argument.  This is typically needed in order
+to get write/update permissions to most of the files on SIM cards.
+
+Currently only ADM1 is supported.
+
+
+reset
+~~~~~
+Perform card reset and display the card ATR.
+
+intro
+~~~~~
+[Re-]Display the introductory banner
+
+
+equip
+~~~~~
+Equip pySim-shell with a card; particularly useful if the program was
+started before a card was present, or after a card has been replaced by
+the user while pySim-shell was kept running.
+
+bulk_script
+~~~~~~~~~~~
+.. argparse::
+   :module: pySim-shell
+   :func: PysimApp.bulk_script_parser
+
+Run a script for bulk-provisioning of multiple cards.
+
+
+echo
+~~~~
+.. argparse::
+   :module: pySim-shell
+   :func: PysimApp.echo_parser
+
 
 
 Linear Fixed EF commands
@@ -332,6 +394,43 @@ Afterwards, the modified JSON will be re-encoded to the binary format, and the r
 to the SIM card.
 
 This allows for easy interactive modification of file contents.
+
+
+
+BER-TLV EF commands
+-------------------
+
+BER-TLV EFs are files that contain BER-TLV structured data.  Every file can contain any number
+of variable-length IEs (DOs).  The tag within a BER-TLV EF must be unique within the file.
+
+The commands below become enabled only when your currently selected file is of *BER-TLV EF* type.
+
+retrieve_tags
+~~~~~~~~~~~~~
+
+Retrieve a list of all tags present in the currently selected file.
+
+
+retrieve_data
+~~~~~~~~~~~~~
+.. argparse::
+   :module: pySim.filesystem
+   :func: BerTlvEF.ShellCommands.retrieve_data_parser
+
+
+set_data
+~~~~~~~~
+.. argparse::
+   :module: pySim.filesystem
+   :func: BerTlvEF.ShellCommands.set_data_parser
+
+
+del_data
+~~~~~~~~
+.. argparse::
+   :module: pySim.filesystem
+   :func: BerTlvEF.ShellCommands.del_data_parser
+
 
 
 USIM commands

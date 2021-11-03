@@ -3,8 +3,11 @@
 """ pySim: PCSC reader transport link base
 """
 
+
 import logging
-from typing import Optional
+import abc
+import argparse
+from typing import Optional, Tuple
 
 from pySim.exceptions import *
 from pySim.construct import filter_dict
@@ -38,17 +41,22 @@ class ApduTracer:
 		pass
 
 
-class LinkBase(object):
+class LinkBase(abc.ABC):
 	"""Base class for link/transport to card."""
 
 	def __init__(self, sw_interpreter=None, apdu_tracer=None):
 		self.sw_interpreter = sw_interpreter
 		self.apdu_tracer = apdu_tracer
 
+	@abc.abstractmethod
+	def _send_apdu_raw(self, pdu:str) -> Tuple[str, str]:
+		"""Implementation specific method for sending the PDU."""
+
 	def set_sw_interpreter(self, interp):
 		"""Set an (optional) status word interpreter."""
 		self.sw_interpreter = interp
 
+	@abc.abstractmethod
 	def wait_for_card(self, timeout:int=None, newcardonly:bool=False):
 		"""Wait for a card and connect to it
 
@@ -56,22 +64,21 @@ class LinkBase(object):
 		   timeout : Maximum wait time in seconds (None=no timeout)
 		   newcardonly : Should we wait for a new card, or an already inserted one ?
 		"""
-		pass
 
+	@abc.abstractmethod
 	def connect(self):
 		"""Connect to a card immediately
 		"""
-		pass
 
+	@abc.abstractmethod
 	def disconnect(self):
 		"""Disconnect from card
 		"""
-		pass
 
+	@abc.abstractmethod
 	def reset_card(self):
 		"""Resets the card (power down/up)
 		"""
-		pass
 
 	def _send_apdu_raw(self, pdu:str):
 		"""Sends an APDU with minimal processing
@@ -102,16 +109,8 @@ class LinkBase(object):
 			self.apdu_tracer.trace_response(pdu, sw, data)
 		return (data, sw)
 
+	""" 
 	def send_apdu_failsafe(self, pdu, retry_attempts = 5):
-		"""Sends an APDU and auto fetch response data
-
-		Args:
-		   pdu : string of hexadecimal characters (ex. "A0A40000023F00")
-		Returns:
-		   tuple(data, sw), where
-				data : string (in hex) of returned data (ex. "074F4EFFFF")
-				sw   : string (in hex) of status word (ex. "9000")
-		"""
 		try:
 			data, sw = self.send_apdu_raw(pdu)
 			return data, sw
@@ -122,8 +121,9 @@ class LinkBase(object):
 			else:
 				logger.error(f"exception occured while sending apdu {pdu}, no retries left...")
 			raise
+	"""
 
-	def send_apdu(self, pdu, retry_attempts = 0):
+	def send_apdu(self, pdu):
 		"""send_apdu(pdu): Sends an APDU and auto fetch response data
 
 		   pdu    : string of hexadecimal characters (ex. "A0A40000023F00")
@@ -131,16 +131,22 @@ class LinkBase(object):
 			    data : string (in hex) of returned data (ex. "074F4EFFFF")
 			    sw   : string (in hex) of status word (ex. "9000")
 		"""
-		data, sw = self.send_apdu_failsafe(pdu, retry_attempts)
+		data, sw = self.send_apdu_raw(pdu)
 		# When whe have sent the first APDU, the SW may indicate that there are response bytes
 		# available. There are two SWs commonly used for this 9fxx (sim) and 61xx (usim), where
 		# xx is the number of response bytes available.
 		# See also:
-		# SW1=9F: 3GPP TS 51.011 9.4.1, Responses to commands which are correctly executed
-		# SW1=61: ISO/IEC 7816-4, Table 5 — General meaning of the interindustry values of SW1-SW2
-		if (sw is not None) and ((sw[0:2] == '9f') or (sw[0:2] == '61')):
-			pdu_gr = pdu[0:2] + 'c00000' + sw[2:4]
-			data, sw = self.send_apdu_failsafe(pdu_gr, retry_attempts)
+		if (sw is not None):
+			if ((sw[0:2] == '9f') or (sw[0:2] == '61')):
+				# SW1=9F: 3GPP TS 51.011 9.4.1, Responses to commands which are correctly executed
+				# SW1=61: ISO/IEC 7816-4, Table 5 — General meaning of the interindustry values of SW1-SW2
+				pdu_gr = pdu[0:2] + 'c00000' + sw[2:4]
+				data, sw = self.send_apdu_raw(pdu_gr)
+			if sw[0:2] == '6c':
+				# SW1=6C: ETSI TS 102 221 Table 7.1: Procedure byte coding
+				pdu_gr = pdu[0:8] + sw[2:4]
+				data,sw = self.send_apdu_raw(pdu_gr)
+
 		return data, sw
 
 	def send_apdu_checksw(self, pdu, sw="9000"):
@@ -157,6 +163,10 @@ class LinkBase(object):
 		"""
 		rv = self.send_apdu(pdu)
 
+		if sw == '9000' and sw_match(rv[1], '91xx'):
+			# proactive sim as per TS 102 221 Setion 7.4.2
+			rv = self.send_apdu_checksw('80120000' + rv[1][2:], sw)
+			print("FETCH: %s", rv[0])
 		if not sw_match(rv[1], sw):
 			raise SwMatchError(rv[1], sw.lower(), self.sw_interpreter)
 		return rv
@@ -207,6 +217,30 @@ class LinkBase(object):
 			raise SwMatchError(sw, sw_exp.lower(), self.sw_interpreter)
 		return (rsp, sw)
 
+def argparse_add_reader_args(arg_parser):
+	"""Add all reader related arguments to the given argparse.Argumentparser instance."""
+	serial_group = arg_parser.add_argument_group('Serial Reader')
+	serial_group.add_argument('-d', '--device', metavar='DEV', default='/dev/ttyUSB0',
+							  help='Serial Device for SIM access')
+	serial_group.add_argument('-b', '--baud', dest='baudrate', type=int, metavar='BAUD', default=9600,
+							  help='Baud rate used for SIM access')
+
+	pcsc_group = arg_parser.add_argument_group('PC/SC Reader')
+	pcsc_group.add_argument('-p', '--pcsc-device', type=int, dest='pcsc_dev', metavar='PCSC', default=None,
+							help='PC/SC reader number to use for SIM access')
+
+	modem_group = arg_parser.add_argument_group('AT Command Modem Reader')
+	modem_group.add_argument('--modem-device', dest='modem_dev', metavar='DEV', default=None,
+							 help='Serial port of modem for Generic SIM Access (3GPP TS 27.007)')
+	modem_group.add_argument('--modem-baud', type=int, metavar='BAUD', default=115200,
+							 help='Baud rate used for modem port')
+
+	osmobb_group = arg_parser.add_argument_group('OsmocomBB Reader')
+	osmobb_group.add_argument('--osmocon', dest='osmocon_sock', metavar='PATH', default=None,
+							  help='Socket path for Calypso (e.g. Motorola C1XX) based reader (via OsmocomBB)')
+
+	return arg_parser
+
 def init_reader(opts, **kwargs) -> Optional[LinkBase]:
 	"""
 	Init card reader driver
@@ -231,5 +265,8 @@ def init_reader(opts, **kwargs) -> Optional[LinkBase]:
 			sl = SerialSimLink(device=opts.device, baudrate=opts.baudrate, **kwargs)
 		return sl
 	except Exception as e:
-		print("Card reader initialization failed with exception:\n" + str(e))
+		if str(e):
+			print("Card reader initialization failed with exception:\n" + str(e))
+		else:
+			print("Card reader initialization failed with an exception of type:\n" + str(type(e)))
 		return None

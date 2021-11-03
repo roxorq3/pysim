@@ -32,53 +32,90 @@ class ModemATCommandLink(LinkBase):
 	def __init__(self, device:str='/dev/ttyUSB0', baudrate:int=115200, **kwargs):
 		super().__init__(**kwargs)
 		self._sl = serial.Serial(device, baudrate, timeout=5)
+		self._echo = False		# this will be auto-detected by _check_echo()
 		self._device = device
 		self._atr = None
+
+		# Check the AT interface
+		self._check_echo()
 
 		# Trigger initial reset
 		self.reset_card()
 
 	def __del__(self):
-		self._sl.close()
+		if hasattr(self, '_sl'):
+			self._sl.close()
 
-	def send_at_cmd(self, cmd):
+	def send_at_cmd(self, cmd, timeout=0.2, patience=0.002):
 		# Convert from string to bytes, if needed
 		bcmd = cmd if type(cmd) is bytes else cmd.encode()
 		bcmd += b'\r'
 
+		# Clean input buffer from previous/unexpected data
+		self._sl.reset_input_buffer()
+
 		# Send command to the modem
-		log.debug('Sending AT command: %s' % cmd)
+		log.debug('Sending AT command: %s', cmd)
 		try:
 			wlen = self._sl.write(bcmd)
 			assert(wlen == len(bcmd))
 		except:
 			raise ReaderError('Failed to send AT command: %s' % cmd)
 
-		# Give the modem some time...
-		time.sleep(0.3)
+		rsp = b''
+		its = 1
+		t_start = time.time()
+		while True:
+			rsp = rsp + self._sl.read(self._sl.in_waiting)
+			lines = rsp.split(b'\r\n')
+			if len(lines) >= 2:
+				res = lines[-2]
+				if res == b'OK':
+					log.debug('Command finished with result: %s', res)
+					break
+				if res == b'ERROR' or res.startswith(b'+CME ERROR:'):
+					log.error('Command failed with result: %s', res)
+					break
 
-		# Read the response
-		try:
-			# Skip characters sent back
-			self._sl.read(wlen)
-			# Read the rest
-			rsp = self._sl.read_all()
+			if time.time() - t_start >= timeout:
+				log.info('Command finished with timeout >= %ss', timeout)
+				break
+			time.sleep(patience)
+			its += 1
+		log.debug('Command took %0.6fs (%d cycles a %fs)', time.time() - t_start, its, patience)
 
-			# Strip '\r\n'
-			rsp = rsp.strip()
-			# Split into a list
-			rsp = rsp.split(b'\r\n\r\n')
-		except:
-			raise ReaderError('Failed parse response to AT command: %s' % cmd)
+		if self._echo:
+			# Skip echo chars
+			rsp = rsp[wlen:]
+		rsp = rsp.strip()
+		rsp = rsp.split(b'\r\n\r\n')
 
-		log.debug('Got response from modem: %s' % rsp)
+		log.debug('Got response from modem: %s', rsp)
 		return rsp
 
-	def reset_card(self):
-		# Make sure that we can talk to the modem
-		if self.send_at_cmd('AT') != [b'OK']:
-			raise ReaderError('Failed to connect to modem')
+	def _check_echo(self):
+		"""Verify the correct response to 'AT' command
+		and detect if inputs are echoed by the device
 
+		Although echo of inputs can be enabled/disabled via
+		ATE1/ATE0, respectively, we rather detect the current
+		configuration of the modem without any change.
+		"""
+		# Next command shall not strip the echo from the response
+		self._echo = False
+		result = self.send_at_cmd('AT')
+
+		# Verify the response
+		if len(result) > 0:
+			if result[-1] == b'OK':
+				self._echo = False
+				return
+			elif result[-1] == b'AT\r\r\nOK':
+				self._echo = True
+				return
+		raise ReaderError('Interface \'%s\' does not respond to \'AT\' command' % self._device)
+
+	def reset_card(self):
 		# Reset the modem, just to be sure
 		if self.send_at_cmd('ATZ') != [b'OK']:
 			raise ReaderError('Failed to reset the modem')
@@ -99,8 +136,12 @@ class ModemATCommandLink(LinkBase):
 		pass # Nothing to do really ...
 
 	def _send_apdu_raw(self, pdu):
+		# Make sure pdu has upper case hex digits [A-F]
+		pdu = pdu.upper()
+
 		# Prepare the command as described in 8.17
 		cmd = 'AT+CSIM=%d,\"%s\"' % (len(pdu), pdu)
+		log.debug('Sending command: %s',  cmd)
 
 		# Send AT+CSIM command to the modem
 		# TODO: also handle +CME ERROR: <err>
@@ -117,6 +158,7 @@ class ModemATCommandLink(LinkBase):
 			raise ReaderError('Failed to parse response from modem: %s' % rsp)
 
 		# TODO: make sure we have at least SW
-		data = rsp_pdu[:-4].decode()
-		sw   = rsp_pdu[-4:].decode()
+		data = rsp_pdu[:-4].decode().lower()
+		sw   = rsp_pdu[-4:].decode().lower()
+		log.debug('Command response: %s, %s',  data, sw)
 		return data, sw

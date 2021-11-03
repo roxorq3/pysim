@@ -6,7 +6,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 setuptools.setup(
     name='pySim',
     version='1.0',
-    packages=['pySim'],
+    packages=['pySim', 'pySim.transport'],
     url='https://osmocom.org/projects/pysim/wiki',
     license='GPLv2',
     author_email='simtrace@lists.osmocom.org',
@@ -18,10 +18,12 @@ setuptools.setup(
           'pyscard', # PcscSimLink
           'pybluez', # BluetoothSapSimLink
           'pytlv',
-          'cmd2',
-          'pyyaml',
+          'cmd2 >= 1.3.0, < 2.0.0',
           'jsonpath-ng',
-          'construct',
+          'construct >= 2.9',
+          'bidict',
+          'gsm0338',
+          'pyyaml',
           'pyserial @ git+https://github.com/mahatma1/pyserial.git@f251884cbcfd5c34ace7d31138d755b67c3db1a3#egg=pyserial', # Forked Pyserial with inter_byte_timeout fix
     ],
     scripts=[
