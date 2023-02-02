@@ -202,6 +202,14 @@ class VirtualSim(threading.Thread):
 			ret_sw[1] = len(response) - SerialBase.SW_LEN
 			logger.debug(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
 			return ret_sw
+		elif response_len != expected_len and response_len > 2:
+			self._get_response_cache = response
+			ret_sw = bytearray(2)
+			ret_sw[0] = 0x6c
+			ret_sw[1] = response_len - 2
+			logger.debug(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
+			return ret_sw
+
 		return response
 
 	def handle_apdu(self, apdu):
