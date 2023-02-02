@@ -195,22 +195,23 @@ class VirtualSim(threading.Thread):
 		response = self.handle_apdu(apdu)
 		response_len = len(response)
 
-		if response_len > expected_len : # apdu case 4
+		if response_len == expected_len: #everything perfect
+			return response
+		elif response_len < SerialBase.SW_LEN:
+			logger.error(f"response too short: {b2h(response)}")
+			return response
+		else: #response_len != expected_len -> either bigger or smaller than expected
 			self._get_response_cache = response
 			ret_sw = bytearray(2)
-			ret_sw[0] = 0x61
-			ret_sw[1] = len(response) - SerialBase.SW_LEN
-			logger.debug(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
+			if response_len > expected_len:
+				ret_sw[0] = 0x61
+				ret_sw[1] = len(response) - SerialBase.SW_LEN
+				logger.debug(f"case 4 --> response bigger than expected --> cache response and send sw with response length {ret_sw} instead")
+			else: # response < expected
+				ret_sw[0] = 0x6c
+				ret_sw[1] = response_len - 2
+				logger.debug(f"case 4 --> respons smaller than expected --> signal modem correct size (TODO: response is cached, so the answer to the repeated request could be returned)")
 			return ret_sw
-		elif response_len != expected_len and response_len > 2:
-			self._get_response_cache = response
-			ret_sw = bytearray(2)
-			ret_sw[0] = 0x6c
-			ret_sw[1] = response_len - 2
-			logger.debug(f"case 4 --> cache response and send sw with response length {ret_sw} instead")
-			return ret_sw
-
-		return response
 
 	def handle_apdu(self, apdu):
 		# virtual, needs to be implemented
