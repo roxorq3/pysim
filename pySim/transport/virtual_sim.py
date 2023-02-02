@@ -195,7 +195,7 @@ class VirtualSim(threading.Thread):
 		response = self.handle_apdu(apdu)
 		response_len = len(response)
 
-		if response_len == expected_len: #everything perfect
+		if response_len == expected_len or response_len == SerialBase.SW_LEN: #everything perfect
 			return response
 		elif response_len < SerialBase.SW_LEN:
 			logger.error(f"response too short: {b2h(response)}")
