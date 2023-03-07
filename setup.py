@@ -16,7 +16,7 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
           'pyscard', # PcscSimLink
-          'pybluez', # BluetoothSapSimLink
+          'pybluez==0.22', # BluetoothSapSimLink
           'pytlv',
           'cmd2 >= 1.3.0, < 2.0.0',
           'jsonpath-ng',
@@ -24,7 +24,7 @@ setuptools.setup(
           'bidict',
           'gsm0338',
           'pyyaml',
-          'pyserial @ git+https://github.com/mahatma1/pyserial.git@f251884cbcfd5c34ace7d31138d755b67c3db1a3#egg=pyserial', # Forked Pyserial with inter_byte_timeout fix
+          'pyserial @ git+https://github.com/GGegenhuber/pyserial.git@f251884cbcfd5c34ace7d31138d755b67c3db1a3#egg=pyserial', # Forked Pyserial with inter_byte_timeout fix
     ],
     scripts=[
         'pySim-prog.py',
