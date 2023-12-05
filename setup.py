@@ -16,7 +16,7 @@ setuptools.setup(
     python_requires='>=3.6',
     install_requires=[
           'pyscard', # PcscSimLink
-          'pybluez==0.22', # BluetoothSapSimLink
+          #'pybluez==0.22', # BluetoothSapSimLink
           'pytlv',
           'cmd2 >= 1.3.0, < 2.0.0',
           'jsonpath-ng',
