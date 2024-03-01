@@ -7,6 +7,7 @@ setuptools.setup(
     name='pySim',
     version='1.0',
     packages=['pySim', 'pySim.transport', 'pySim.transport.instructions'],
+    package_data={'pySim.transport.instructions': ['*.json']},
     url='https://osmocom.org/projects/pysim/wiki',
     license='GPLv2',
     author_email='simtrace@lists.osmocom.org',
