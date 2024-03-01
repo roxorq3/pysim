@@ -6,7 +6,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 setuptools.setup(
     name='pySim',
     version='1.0',
-    packages=['pySim', 'pySim.transport'],
+    packages=['pySim', 'pySim.transport', 'pySim.transport.instructions'],
     url='https://osmocom.org/projects/pysim/wiki',
     license='GPLv2',
     author_email='simtrace@lists.osmocom.org',
