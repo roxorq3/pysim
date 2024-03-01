@@ -30,6 +30,6 @@ setuptools.setup(
         'pySim-prog.py',
         'pySim-read.py',
         'pySim-shell.py'
-    ]
+    ],
     package_data={'pySim.transport.instructions': ['*.json']}
 )
